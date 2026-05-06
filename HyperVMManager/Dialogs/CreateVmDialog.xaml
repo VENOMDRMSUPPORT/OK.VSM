@@ -1,0 +1,283 @@
+<Window x:Class="HyperVMManager.Dialogs.CreateVmDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Create VM (Ubuntu)" Width="520" SizeToContent="Height" MinHeight="420" WindowStartupLocation="CenterOwner" ResizeMode="NoResize" WindowStyle="None" AllowsTransparency="True" Background="#00FFFFFF" ShowInTaskbar="False" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display" xmlns:dialogs="clr-namespace:HyperVMManager.Dialogs;assembly=HyperVMManager" Loaded="Window_Loaded">
+  <FrameworkElement.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="/HyperVMManager;component/Themes/DarkTheme.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+      <Style x:Key="DialogIconBtn" TargetType="{x:Type Button}">
+        <Setter Property="Background" Value="#00FFFFFF" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="FrameworkElement.Cursor" Value="Hand" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="{x:Type Button}">
+              <Border Name="Bd" Background="#00FFFFFF" CornerRadius="6" SnapsToDevicePixels="True">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="UIElement.IsMouseOver" Value="True">
+                  <Setter TargetName="Bd" Property="Border.Background" Value="#2D333B" />
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+      <Style x:Key="Field" TargetType="{x:Type TextBox}">
+        <Setter Property="Background" Value="#0D1117" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+      </Style>
+      <Style x:Key="PwdField" TargetType="{x:Type PasswordBox}">
+        <Setter Property="Background" Value="#0D1117" />
+        <Setter Property="Foreground" Value="#E6EDF3" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="PasswordChar" Value="●" />
+      </Style>
+      <Style x:Key="CreateVmComboBoxItem" TargetType="{x:Type ComboBoxItem}">
+        <Setter Property="Foreground" Value="#E6EDF3" />
+        <Setter Property="Background" Value="#161B22" />
+        <Setter Property="Padding" Value="10,9" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Style.Triggers>
+          <Trigger Property="ComboBoxItem.IsHighlighted" Value="True">
+            <Setter Property="Background" Value="#30363D" />
+            <Setter Property="Foreground" Value="#F0F6FC" />
+          </Trigger>
+        </Style.Triggers>
+      </Style>
+      <ControlTemplate x:Key="DarkComboNonEditableTpl" TargetType="{x:Type ComboBox}">
+        <Grid SnapsToDevicePixels="True">
+          <Border Name="OuterBorder" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="6">
+            <Grid>
+              <ToggleButton Name="DropToggle" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Focusable="False" ClickMode="Press" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <Control.Template>
+                  <ControlTemplate TargetType="{x:Type ToggleButton}">
+                    <Border Background="#00FFFFFF" BorderThickness="0" />
+                  </ControlTemplate>
+                </Control.Template>
+              </ToggleButton>
+              <DockPanel Margin="{TemplateBinding Control.Padding}" IsHitTestVisible="False" LastChildFill="True">
+                <Path DockPanel.Dock="Right" Width="10" Height="6" Stretch="Fill" Margin="8,0,2,0" VerticalAlignment="Center" Fill="#8B949E" Data="M0,0 L5,5 L10,0" />
+                <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Stretch" Content="{TemplateBinding ComboBox.SelectionBoxItem}" ContentStringFormat="{TemplateBinding ComboBox.SelectionBoxItemStringFormat}" ContentTemplate="{TemplateBinding ComboBox.SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemsControl.ItemTemplateSelector}" />
+              </DockPanel>
+            </Grid>
+          </Border>
+          <Popup IsOpen="{TemplateBinding ComboBox.IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade" PlacementTarget="{Binding ElementName=OuterBorder}">
+            <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="6" MinWidth="{Binding ActualWidth, ElementName=OuterBorder}">
+              <ScrollViewer Margin="0" SnapsToDevicePixels="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" CanContentScroll="True">
+                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+              </ScrollViewer>
+            </Border>
+          </Popup>
+        </Grid>
+        <ControlTemplate.Triggers>
+          <Trigger Property="UIElement.IsKeyboardFocusWithin" Value="True">
+            <Setter TargetName="OuterBorder" Property="Border.BorderBrush" Value="#58A6FF" />
+          </Trigger>
+          <Trigger Property="UIElement.IsEnabled" Value="False">
+            <Setter Property="UIElement.Opacity" Value="0.55" />
+          </Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate>
+      <Style x:Key="ComboDark" TargetType="{x:Type ComboBox}">
+        <Setter Property="Background" Value="#0D1117" />
+        <Setter Property="Foreground" Value="#E6EDF3" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="ItemContainerStyle" Value="{StaticResource CreateVmComboBoxItem}" />
+        <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template" Value="{StaticResource DarkComboNonEditableTpl}" />
+      </Style>
+      <Style x:Key="DlgBtn" TargetType="{x:Type Button}">
+        <Setter Property="Background" Value="#21262D" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="22,10" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="FrameworkElement.Cursor" Value="Hand" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="{x:Type Button}">
+              <Border Name="Bd" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Control.Padding}" SnapsToDevicePixels="True">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="UIElement.IsMouseOver" Value="True">
+                  <Setter TargetName="Bd" Property="Border.Background" Value="#30363D" />
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+      <Style x:Key="DlgPrimary" TargetType="{x:Type Button}" BasedOn="{StaticResource DlgBtn}">
+        <Setter Property="Background" Value="#238636" />
+        <Setter Property="BorderBrush" Value="#2EA043" />
+        <Setter Property="Foreground" Value="#FFFFFF" />
+      </Style>
+      <Style x:Key="SmallIconButton" TargetType="{x:Type Button}">
+        <Setter Property="Background" Value="#21262D" />
+        <Setter Property="Foreground" Value="#8B949E" />
+        <Setter Property="BorderBrush" Value="#30363D" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="FrameworkElement.Cursor" Value="Hand" />
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="{x:Type Button}">
+              <Border Name="Bd" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Control.Padding}" SnapsToDevicePixels="True">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="UIElement.IsMouseOver" Value="True">
+                  <Setter TargetName="Bd" Property="Border.Background" Value="#30363D" />
+                  <Setter TargetName="Bd" Property="TextElement.Foreground" Value="#E6EDF3" />
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+    </ResourceDictionary>
+  </FrameworkElement.Resources>
+  <Border CornerRadius="12" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="16" SnapsToDevicePixels="True" ClipToBounds="True">
+    <UIElement.Effect>
+      <DropShadowEffect BlurRadius="24" ShadowDepth="3" Opacity="0.45" Direction="270" Color="#000000" />
+    </UIElement.Effect>
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <Border Grid.Row="0" Background="#161B22" CornerRadius="12,12,0,0" Padding="14,12" BorderBrush="#30363D" BorderThickness="0,0,0,1" MouseLeftButtonDown="Header_MouseLeftButtonDown">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Border Background="#1F3329" CornerRadius="6" Padding="6,4" VerticalAlignment="Center">
+            <TextBlock Text="&#xE912;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#3FB950" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Grid.Column="1" Text="Create Ubuntu VM" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" Margin="12,0,0,0" FontFamily="Segoe UI" />
+          <Button Grid.Column="2" Style="{StaticResource DialogIconBtn}" ToolTipService.ToolTip="Close" Click="CloseButton_Click">
+            <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="#8B949E" />
+          </Button>
+        </Grid>
+      </Border>
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="480" Padding="0,0,2,0">
+        <StackPanel Margin="20,16,20,8">
+          <Border Background="#1A2332" CornerRadius="8" Padding="10,8" Margin="0,0,0,14">
+            <StackPanel>
+              <TextBlock FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" Text="Suggested next IPv4 (pool)" FontFamily="Segoe UI" />
+              <TextBlock Name="TxtSuggestedIp" FontSize="15" Foreground="#58A6FF" FontFamily="Consolas" Margin="0,4,0,0" />
+              <TextBlock Name="TxtPoolRange" FontSize="11" Foreground="#8B949E" FontFamily="Segoe UI" Margin="0,6,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <!-- VM Name -->
+          <TextBlock Text="VM name" FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI" />
+          <TextBox Name="TxtVmName" Style="{StaticResource Field}" Margin="0,4,0,12" />
+
+          <!-- Hostname (auto-generated from VM name) -->
+          <TextBlock FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI">
+            <Run Text="Hostname" />
+            <Run Text=" (auto-generated)" Foreground="#484F58" />
+          </TextBlock>
+          <TextBox Name="TxtHostname" Style="{StaticResource Field}" Margin="0,4,0,12" IsReadOnly="True" Foreground="#58A6FF" />
+
+          <!-- Cloud base image -->
+          <TextBlock Text="Cloud base image (.vhd / .vhdx)" FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI" />
+          <TextBlock Name="TxtCloudFolderHint" FontSize="11" Foreground="#6E7681" FontFamily="Segoe UI" TextWrapping="Wrap" Margin="0,2,0,4" LineHeight="16" />
+          <ComboBox Name="CmbCloud" Style="{StaticResource ComboDark}" Margin="0,0,0,12" IsEditable="False" />
+
+          <!-- Admin username -->
+          <TextBlock FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI">
+            <Run Text="Admin username" />
+            <Run Text=" (optional, default: venom)" Foreground="#484F58" />
+          </TextBlock>
+          <TextBox Name="TxtAdminUser" Style="{StaticResource Field}" Margin="0,4,0,12" />
+
+          <!-- Admin password -->
+          <TextBlock Text="Admin password" FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI" />
+          <Grid Margin="0,4,0,12">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <PasswordBox Name="TxtAdminPassword" Style="{StaticResource PwdField}" />
+            <TextBox Name="TxtAdminPasswordVisible" Style="{StaticResource Field}" Text="" Visibility="Collapsed" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="6,0,0,0">
+              <Button Name="BtnTogglePassword" Style="{StaticResource SmallIconButton}" ToolTipService.ToolTip="Show / Hide password" Click="TogglePassword_Click" Padding="8,6">
+                <TextBlock Name="TxtEyeIcon" Text="&#xE8B7;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
+              </Button>
+              <Button Name="BtnGeneratePassword" Style="{StaticResource SmallIconButton}" ToolTipService.ToolTip="Generate random password" Click="GeneratePassword_Click" Padding="8,6" Margin="4,0,0,0">
+                <TextBlock Text="&#xE943;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
+              </Button>
+            </StackPanel>
+          </Grid>
+
+          <!-- VHD path hint -->
+          <Border Background="#1A2332" CornerRadius="8" Padding="10,8" Margin="0,0,0,12">
+            <StackPanel>
+              <TextBlock FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI" />
+              <TextBlock Name="TxtVhdPathHint" FontSize="11" Foreground="#8B949E" FontFamily="Segoe UI" Margin="0,2,0,0" TextWrapping="Wrap" LineHeight="16" />
+            </StackPanel>
+          </Border>
+
+          <!-- RAM + CPU -->
+          <Grid Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+              <TextBlock Text="Memory (GB)" FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI" />
+              <TextBox Name="TxtMemGb" Style="{StaticResource Field}" Margin="0,4,0,0" Text="12" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+              <TextBlock Text="vCPU" FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI" />
+              <TextBox Name="TxtCpu" Style="{StaticResource Field}" Margin="0,4,0,0" Text="4" />
+            </StackPanel>
+          </Grid>
+
+          <!-- Disk -->
+          <TextBlock Text="Disk size (GB)" FontSize="10" Foreground="#6E7681" FontWeight="SemiBold" FontFamily="Segoe UI" />
+          <TextBox Name="TxtDiskGb" Style="{StaticResource Field}" Margin="0,4,0,0" Text="100" />
+
+          <TextBlock Margin="0,12,0,0" FontSize="11" Foreground="#8B949E" TextWrapping="Wrap" FontFamily="Segoe UI" LineHeight="16" Text="Place official Ubuntu cloud base .vhdx files in the CloudImages folder (see hint above). First boot is fully automated via cloud-init; guest IP appears when DHCP succeeds." />
+        </StackPanel>
+      </ScrollViewer>
+      <Border Grid.Row="2" Padding="16,8,16,16">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button Content="Cancel" Style="{StaticResource DlgBtn}" MinWidth="88" IsCancel="True" Click="CancelButton_Click" />
+          <Button Content="Create" Style="{StaticResource DlgPrimary}" MinWidth="88" Margin="10,0,0,0" IsDefault="True" Click="CreateButton_Click" />
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Border>
+</Window>

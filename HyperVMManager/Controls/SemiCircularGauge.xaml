@@ -1,0 +1,18 @@
+<UserControl x:Class="HyperVMManager.Controls.SemiCircularGauge" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" MinWidth="96" MinHeight="86" SnapsToDevicePixels="True" xmlns:controls="clr-namespace:HyperVMManager.Controls;assembly=HyperVMManager">
+  <Grid Width="96" Height="86">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="52" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+    <TextBlock Name="TitleText" Grid.Row="0" Text="CPU" FontSize="10" FontWeight="SemiBold" Foreground="#8B949E" HorizontalAlignment="Center" Margin="0,0,0,4" FontFamily="Segoe UI" Visibility="Collapsed" />
+    <Canvas Name="ArcCanvas" Grid.Row="1" Width="92" Height="52" HorizontalAlignment="Center" VerticalAlignment="Top">
+      <Path Name="TrackPath" Stroke="#2D333B" StrokeThickness="5.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="#00FFFFFF" />
+      <Path Name="ValuePath" Stroke="#58A6FF" StrokeThickness="5.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="#00FFFFFF" />
+    </Canvas>
+    <StackPanel Grid.Row="2" Margin="0,2,0,0">
+      <TextBlock Name="PercentText" Text="—" FontSize="14" FontWeight="Bold" Foreground="#E6EDF3" HorizontalAlignment="Center" FontFamily="Segoe UI" />
+      <TextBlock Name="CaptionText" Text="" FontSize="9" Foreground="#8B949E" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="92" TextAlignment="Center" FontFamily="Segoe UI" LineHeight="12" />
+    </StackPanel>
+  </Grid>
+</UserControl>

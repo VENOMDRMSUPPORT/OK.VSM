@@ -1,0 +1,409 @@
+﻿<Window x:Class="HyperVMManager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:converters="clr-namespace:HyperVMManager.Converters"
+        xmlns:controls="clr-namespace:HyperVMManager.Controls"
+        Title="Hyper-V Manager"
+        Height="740" Width="1240"
+        MinHeight="600" MinWidth="960"
+        WindowStartupLocation="CenterScreen"
+        Background="#0D1117"
+        WindowStyle="None"
+        ResizeMode="CanResizeWithGrip"
+        AllowsTransparency="False"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
+
+        <Style x:Key="TitleIconButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#21262D"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#30363D"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="MetricPlaceholder" TargetType="TextBlock">
+            <Setter Property="Text" Value="—"/>
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="Foreground" Value="#5C6570"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+        </Style>
+    </Window.Resources>
+
+    <!-- No outer border (avoids a light 1px seam at the top on some GPUs/DPI). -->
+    <Border Background="#0D1117" BorderThickness="0" CornerRadius="8" ClipToBounds="True">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="52"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Title Bar -->
+            <Grid Grid.Row="0" Background="#161B22" MouseLeftButtonDown="TitleBar_MouseDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
+                    <Border Background="#1A2A3A" CornerRadius="6" Padding="6,4" Margin="0,0,10,0">
+                        <TextBlock Text="&#xE912;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#58A6FF"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="Hyper-V Manager" FontSize="15" FontWeight="SemiBold"
+                               Foreground="#F0F6FC" VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                    <TextBlock x:Name="TxtAppVersion" Text="v1.1.0" FontSize="11" Foreground="#9DA7AF"
+                               VerticalAlignment="Center" Margin="8,0,0,0" FontFamily="Segoe UI"/>
+
+                    <Button x:Name="BtnRefresh" Style="{StaticResource TitleIconButton}" Margin="10,0,0,0"
+                            Click="BtnRefresh_Click" ToolTipService.ToolTip="Refresh list">
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="#B1BAC4" VerticalAlignment="Center"
+                                   RenderTransformOrigin="0.5,0.5" Text="&#xE72C;">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsLoading}" Value="True">
+                                            <Setter Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <RotateTransform Angle="0"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <DataTrigger.EnterActions>
+                                                <BeginStoryboard>
+                                                    <Storyboard RepeatBehavior="Forever">
+                                                        <DoubleAnimation Storyboard.TargetProperty="RenderTransform.Angle" From="0" To="360" Duration="0:0:1"/>
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </DataTrigger.EnterActions>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Button>
+
+                    <Button x:Name="BtnPool" Style="{StaticResource TitleIconButton}" Margin="4,0,0,0"
+                            Click="BtnPool_Click" ToolTipService.ToolTip="Guest IPv4 pool (range + next free)">
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="#B1BAC4" VerticalAlignment="Center" Text="&#xE968;"/>
+                    </Button>
+                    <Button x:Name="BtnCreateVm" Style="{StaticResource TitleIconButton}" Margin="2,0,0,0"
+                            Click="BtnCreateVm_Click" ToolTipService.ToolTip="Create Ubuntu VM (ISO install)">
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="#B1BAC4" VerticalAlignment="Center" Text="&#xE710;"/>
+                    </Button>
+
+                    <Button x:Name="BtnCheckUpdates" Style="{StaticResource TitleIconButton}" Margin="4,0,0,0"
+                            Click="BtnCheckUpdates_Click" ToolTipService.ToolTip="Check for updates">
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="#B1BAC4" VerticalAlignment="Center" Text="&#xE895;"/>
+                    </Button>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,8,0">
+                    <Button x:Name="BtnMinimize" Click="BtnMinimize_Click"
+                            Width="40" Height="40" BorderThickness="0" Background="Transparent" Cursor="Hand">
+                        <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="#8B949E" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button x:Name="BtnMaximize" Click="BtnMaximize_Click"
+                            Width="40" Height="40" BorderThickness="0" Background="Transparent" Cursor="Hand">
+                        <TextBlock Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="#8B949E" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button x:Name="BtnClose" Click="BtnClose_Click"
+                            Width="40" Height="40" BorderThickness="0" Background="Transparent" Cursor="Hand">
+                        <TextBlock Text="&#xE106;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="#8B949E" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- Main: stats + VM list (left) | full-height detail drawer (right) -->
+            <Grid Grid.Row="1" MinHeight="280">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="360"/>
+                    <ColumnDefinition Width="400"/>
+                </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Summary: 4 stat cards, full width -->
+                    <UniformGrid Grid.Row="0" Rows="1" Columns="4" Margin="20,14,12,12">
+                        <Border Margin="0,0,6,0" Padding="0" Background="#0E131C" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12" ClipToBounds="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="#58A6FF"/>
+                                <StackPanel Grid.Column="1" Margin="16,14,14,14">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE912;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="#58A6FF" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="TOTAL" FontSize="10" Foreground="#8B949E" FontWeight="SemiBold" FontFamily="Segoe UI" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="TxtTotal" Margin="0,10,0,0" FontSize="30" FontWeight="Bold" Foreground="#F0F6FC" FontFamily="Segoe UI"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <Border Margin="0,0,6,0" Padding="0" Background="#0E131C" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12" ClipToBounds="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="#3FB950"/>
+                                <StackPanel Grid.Column="1" Margin="16,14,14,14">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="#3FB950" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="RUNNING" FontSize="10" Foreground="#8B949E" FontWeight="SemiBold" FontFamily="Segoe UI" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="TxtRunning" Margin="0,10,0,0" FontSize="30" FontWeight="Bold" Foreground="#3FB950" FontFamily="Segoe UI"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <Border Margin="0,0,6,0" Padding="0" Background="#0E131C" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12" ClipToBounds="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="#F85149"/>
+                                <StackPanel Grid.Column="1" Margin="16,14,14,14">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE71A;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="#F85149" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="STOPPED" FontSize="10" Foreground="#8B949E" FontWeight="SemiBold" FontFamily="Segoe UI" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="TxtStopped" Margin="0,10,0,0" FontSize="30" FontWeight="Bold" Foreground="#F85149" FontFamily="Segoe UI"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <Border Padding="0" Background="#0E131C" BorderBrush="#30363D" BorderThickness="1" CornerRadius="12" ClipToBounds="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="#D29922"/>
+                                <StackPanel Grid.Column="1" Margin="16,14,14,14">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE945;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="#D29922" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="OTHER" FontSize="10" Foreground="#8B949E" FontWeight="SemiBold" FontFamily="Segoe UI" VerticalAlignment="Center"
+                                                   ToolTipService.ToolTip="Paused, saving, starting, or other Hyper-V states (not Running or Off)."/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="TxtOther" Margin="0,10,0,0" FontSize="30" FontWeight="Bold" Foreground="#D29922" FontFamily="Segoe UI"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </UniformGrid>
+
+            <!-- Data grid (master) — scrolls independently -->
+            <Grid Grid.Row="1" Margin="20,0,12,12">
+                <Border Background="#0D1117" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}" Panel.ZIndex="10">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <ProgressBar IsIndeterminate="True" Width="280" Height="4" Foreground="#58A6FF" Background="#21262D" BorderThickness="0"/>
+                        <TextBlock Text="Loading virtual machines..." Foreground="#9DA7AF" FontSize="13" Margin="0,12,0,0"
+                                   HorizontalAlignment="Center" FontFamily="Segoe UI"/>
+                    </StackPanel>
+                </Border>
+
+                <DataGrid x:Name="VmDataGrid"
+                          ItemsSource="{Binding VirtualMachines}"
+                          Style="{StaticResource DataGridStyle}"
+                          RowStyle="{StaticResource DataGridRowStyle}"
+                          CellStyle="{StaticResource DataGridCellStyle}"
+                          VerticalScrollBarVisibility="Hidden"
+                          HorizontalScrollBarVisibility="Disabled"
+                          LoadingRow="VmDataGrid_LoadingRow"
+                          SelectionChanged="VmDataGrid_SelectionChanged">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="#" Width="48">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock FontSize="14" Foreground="#6E7681" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center" FontFamily="Segoe UI"
+                                               Text="{Binding RelativeSource={RelativeSource AncestorType=DataGridRow}, Path=Header}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="SERVER" Width="2*" MinWidth="200" SortMemberPath="Name">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="&#xE912;" FontFamily="Segoe MDL2 Assets" FontSize="32"
+                                                   VerticalAlignment="Center" Margin="0,0,14,0" Width="36" TextAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="#8B949E"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding EnabledState}" Value="2">
+                                                            <Setter Property="Foreground" Value="#3FB950"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding EnabledState}" Value="3">
+                                                            <Setter Property="Foreground" Value="#8B949E"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding EnabledState}" Value="32768">
+                                                            <Setter Property="Foreground" Value="#F85149"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding EnabledState}" Value="32769">
+                                                            <Setter Property="Foreground" Value="#F85149"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsInstalling}" Value="True">
+                                                            <Setter Property="Foreground" Value="#58A6FF"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <StackPanel VerticalAlignment="Center" MinWidth="0">
+                                            <TextBlock Text="{Binding Name}" FontSize="15" Foreground="#F0F6FC" FontWeight="SemiBold" FontFamily="Segoe UI"
+                                                       TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Name}"/>
+                                            <TextBlock Text="{Binding Uptime}" FontSize="12" Foreground="#9DA7AF" Margin="0,4,0,0" FontFamily="Segoe UI"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="IPv4" Width="140" SortMemberPath="GuestIpv4">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding GuestIpv4}" FontSize="12" Foreground="#B1BAC4" VerticalAlignment="Center"
+                                               FontFamily="Consolas" TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{Binding GuestIpv4}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="CPU" Width="200" SortMemberPath="CpuGaugePercent">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Grid MinHeight="54">
+                                        <controls:ResourceMeter
+                                            Percent="{Binding CpuGaugePercent}"
+                                            Caption="{Binding CpuGaugeCaption}"
+                                            IsAlert="False"
+                                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                                            <controls:ResourceMeter.MeterForeground>
+                                                <SolidColorBrush Color="#58A6FF"/>
+                                            </controls:ResourceMeter.MeterForeground>
+                                            <ToolTipService.ToolTip>
+                                                <TextBlock MaxWidth="260" TextWrapping="Wrap" Foreground="#F0F6FC" FontSize="12"
+                                                           Text="vCPU allocation as a share of host logical processors (configuration, not live usage). Shown only while Running."/>
+                                            </ToolTipService.ToolTip>
+                                        </controls:ResourceMeter>
+                                        <TextBlock Style="{StaticResource MetricPlaceholder}"
+                                                   Visibility="{Binding IsRunning, Converter={StaticResource InverseBoolToVis}}"
+                                                   ToolTipService.ToolTip="Metrics hidden while the VM is not running."/>
+                                    </Grid>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="MEMORY" Width="220" SortMemberPath="MemoryGaugePercent">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Grid MinHeight="54">
+                                        <controls:ResourceMeter
+                                            Percent="{Binding MemoryGaugePercent}"
+                                            Caption="{Binding MemoryGaugeCaption}"
+                                            IsAlert="{Binding MemoryAllocationCritical}"
+                                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                                            <controls:ResourceMeter.MeterForeground>
+                                                <SolidColorBrush Color="#A371F7"/>
+                                            </controls:ResourceMeter.MeterForeground>
+                                            <ToolTipService.ToolTip>
+                                                <StackPanel MaxWidth="280">
+                                                    <TextBlock TextWrapping="Wrap" Foreground="#F0F6FC" FontSize="12"
+                                                               Text="Configured RAM vs visible host memory. Shown only while Running."/>
+                                                    <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Foreground="#F85149" FontSize="12" FontWeight="SemiBold"
+                                                               Visibility="{Binding MemoryAllocationCritical, Converter={StaticResource BoolToVis}}"
+                                                               Text="High share of host memory — review allocation."/>
+                                                </StackPanel>
+                                            </ToolTipService.ToolTip>
+                                        </controls:ResourceMeter>
+                                        <TextBlock Style="{StaticResource MetricPlaceholder}"
+                                                   Visibility="{Binding IsRunning, Converter={StaticResource InverseBoolToVis}}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="ACTIONS" Width="168" MinWidth="140">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <controls:VmActionsPanel/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
+                    <TextBlock Text="&#xE912;" FontFamily="Segoe MDL2 Assets" FontSize="48" Foreground="#30363D"
+                               HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                    <TextBlock Text="No Virtual Machines Found" FontSize="18" Foreground="#9DA7AF"
+                               HorizontalAlignment="Center" FontWeight="Medium" FontFamily="Segoe UI"/>
+                    <TextBlock Text="Run as Administrator and ensure Hyper-V is enabled."
+                               FontSize="13" Foreground="#6E7681" HorizontalAlignment="Center" Margin="0,8,0,0" FontFamily="Segoe UI"/>
+                </StackPanel>
+            </Grid>
+                </Grid>
+
+            <!-- Detail panel — full height of main area -->
+            <Border Grid.Column="1" VerticalAlignment="Stretch" Background="#080C11" BorderBrush="#2A3038" BorderThickness="1,0,0,0">
+                <controls:VmDetailsDrawer x:Name="VmDetailsDrawerPanel" VerticalAlignment="Stretch" DataContext="{Binding}"/>
+            </Border>
+            </Grid>
+
+            <!-- VM creation progress overlay -->
+            <Border Grid.Row="1" Panel.ZIndex="50"
+                    Background="#CC0D1117" CornerRadius="0"
+                    Visibility="{Binding IsCreateVmBusy, Converter={StaticResource BoolToVis}}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <ProgressBar IsIndeterminate="True" Width="320" Height="5" Foreground="#58A6FF" Background="#21262D" BorderThickness="0"/>
+                    <TextBlock Text="{Binding CreateVmProgressText}" Foreground="#F0F6FC" FontSize="14" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,16,0,0" FontFamily="Segoe UI"/>
+                    <TextBlock Text="Please wait while the virtual machine is being created."
+                               Foreground="#8B949E" FontSize="12" HorizontalAlignment="Center" Margin="0,6,0,0" FontFamily="Segoe UI"/>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="2" Background="#161B22" BorderBrush="#30363D" BorderThickness="0,1,0,0" Padding="20,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="#9DA7AF" VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                    <TextBlock Grid.Column="1" Text="Hyper-V WMI" FontSize="11" Foreground="#6E7681" VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

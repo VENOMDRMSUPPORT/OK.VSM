@@ -1,0 +1,80 @@
+# Build artifacts
+**/bin/
+**/obj/
+**/publish/
+**/artifacts/
+
+# Logs
+*.log
+*.logs
+*.out
+*.err
+*.trace
+*.dmp
+*-diag.log
+*.stackdump
+build_out.txt
+*.tmp
+*.temp
+
+# IDE settings
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.opendb
+
+# Local environment and secrets
+.env
+.env.*
+*.secret
+*.secrets
+*.pfx
+*.snk
+*.key
+*.pem
+*.cer
+
+# Local machine overrides
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+*.local.json
+*.local.ps1
+*.override.ps1
+
+# Hyper-V and VM runtime artifacts (exclude current VMs from repo)
+HyperVMManager/vhdx/**
+*.vhd
+*.vhdx
+*.avhd
+*.avhdx
+*.vsv
+*.vmrs
+*.vmgs
+*.vmcx
+*.iso
+
+# Installer generated outputs
+installer/*.exe
+installer/*.msi
+installer/Output/
+
+# Tests and test artifacts
+run-test.ps1
+Test-*.ps1
+**/TestResults/
+**/test-results/
+**/coverage/
+**/coverage-report/
+**/*.trx
+**/*.coverage
+**/*.coveragexml
+**/*.testlog
+
+# OS files
+Thumbs.db
+.DS_Store
