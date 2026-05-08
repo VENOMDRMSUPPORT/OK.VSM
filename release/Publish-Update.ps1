@@ -11,6 +11,47 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+function Invoke-Native {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FileName,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    & $FileName @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$FileName failed with exit code $LASTEXITCODE`: $($Arguments -join ' ')"
+    }
+}
+
+function Get-RepoRoot {
+    $root = (& git rev-parse --show-toplevel)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($root)) {
+        throw "Could not determine git repository root."
+    }
+
+    return [string]$root.Trim()
+}
+
+function Convert-ToRepoRelativePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    $fullPath = (Resolve-Path -LiteralPath $Path).Path.Replace('/', '\')
+    $rootPath = (Resolve-Path -LiteralPath $RepoRoot).Path.Replace('/', '\').TrimEnd('\')
+    $rootWithSlash = $rootPath + '\'
+    if (-not $fullPath.StartsWith($rootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Path is outside the git repository: $fullPath"
+    }
+
+    return $fullPath.Substring($rootWithSlash.Length).Replace('\', '/')
+}
+
 function Get-ProjectVersion {
     param([string]$CsprojPath)
 
@@ -24,19 +65,27 @@ function Get-ProjectVersion {
 }
 
 function Assert-CleanGitWorktree {
-    $status = @(git status --porcelain)
+    param([string]$RepoRoot)
+
+    $status = @(& git -C $RepoRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect git worktree."
+    }
+
     if ($status.Count -gt 0) {
         throw "Git worktree has uncommitted changes. Commit the exact update changes first, then run Publish-Update.ps1 -GitHubRelease."
     }
 }
 
+$repoRoot = Get-RepoRoot
 $resolvedProjectPath = Resolve-Path $ProjectPath
 $resolvedManifestPath = Resolve-Path $ManifestPath
 $version = Get-ProjectVersion -CsprojPath $resolvedProjectPath
 $versionTag = "v$version"
+$manifestRelativePath = Convert-ToRepoRelativePath -Path $resolvedManifestPath -RepoRoot $repoRoot
 
 if ($GitHubRelease) {
-    Assert-CleanGitWorktree
+    Assert-CleanGitWorktree -RepoRoot $repoRoot
 }
 
 & (Join-Path $PSScriptRoot "Publish-Release.ps1") `
@@ -46,8 +95,8 @@ if ($GitHubRelease) {
     -OwnerRepo $OwnerRepo
 
 $installerName = "HyperVMManager-Setup-$version.exe"
-$installerPath = Resolve-Path (Join-Path (Split-Path (Resolve-Path $InnoScriptPath) -Parent) $installerName)
-$manifestPathResolved = Resolve-Path $resolvedManifestPath
+$installerPath = (Resolve-Path (Join-Path (Split-Path (Resolve-Path $InnoScriptPath) -Parent) $installerName)).Path
+$manifestPathResolved = (Resolve-Path $resolvedManifestPath).Path
 $sha256 = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
 
 Write-Host ""
@@ -62,24 +111,20 @@ if (-not $GitHubRelease) {
     exit 0
 }
 
-$statusAfterBuild = @(git status --porcelain)
+$statusAfterBuild = @(& git -C $repoRoot status --porcelain)
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect git worktree after build."
+}
+
 if ($statusAfterBuild.Count -gt 0) {
-    $manifestRepoPath = (Resolve-Path $resolvedManifestPath).Path
-    $repoRoot = (git rev-parse --show-toplevel).Trim().Replace('/', '\')
-    $manifestRepoPath = $manifestRepoPath.Replace('/', '\')
-    $repoRootWithSlash = $repoRoot.TrimEnd('\') + '\'
-    if (-not $manifestRepoPath.StartsWith($repoRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Manifest path is outside the git repository: $manifestRepoPath"
-    }
-    $manifestRelativePath = $manifestRepoPath.Substring($repoRootWithSlash.Length).Replace('\', '/')
     $allowed = @(" M $manifestRelativePath", "M  $manifestRelativePath", "MM $manifestRelativePath")
     $unexpected = @($statusAfterBuild | Where-Object { $allowed -notcontains $_ })
     if ($unexpected.Count -gt 0) {
         throw "Build left unexpected git changes:`n$($unexpected -join "`n")"
     }
 
-    git add -- $manifestRelativePath
-    git commit -m "Update release manifest for $versionTag"
+    Invoke-Native -FileName "git" -Arguments @("-C", $repoRoot, "add", "--", $manifestRelativePath)
+    Invoke-Native -FileName "git" -Arguments @("-C", $repoRoot, "commit", "-m", "Update release manifest for $versionTag")
 }
 
 $gh = Get-Command gh -ErrorAction SilentlyContinue
@@ -87,52 +132,60 @@ if ($null -eq $gh) {
     throw "GitHub CLI (gh) is required to publish update releases."
 }
 
-gh auth status | Out-Host
+Invoke-Native -FileName "gh" -Arguments @("auth", "status")
 
-$currentBranch = (git branch --show-current).Trim()
+$currentBranch = (& git -C $repoRoot branch --show-current)
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not determine current git branch."
+}
+$currentBranch = $currentBranch.Trim()
 if ([string]::IsNullOrWhiteSpace($currentBranch)) {
     throw "Could not determine current git branch."
 }
 
 Write-Host "Pushing branch $currentBranch ..."
-git push origin $currentBranch
+Invoke-Native -FileName "git" -Arguments @("-C", $repoRoot, "push", "origin", $currentBranch)
 
-$tagExists = $false
-try {
-    git rev-parse -q --verify "refs/tags/$versionTag" | Out-Null
-    $tagExists = $true
+$localTags = @(& git -C $repoRoot tag --list $versionTag)
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect local git tags."
 }
-catch {
-    $tagExists = $false
-}
+$tagExists = $localTags -contains $versionTag
 
 if (-not $tagExists) {
-    git tag -a $versionTag -m "Release $versionTag"
+    Invoke-Native -FileName "git" -Arguments @("-C", $repoRoot, "tag", "-a", $versionTag, "-m", "Release $versionTag")
 }
 
-Write-Host "Pushing tag $versionTag ..."
-git push origin $versionTag
+$remoteTag = & git -C $repoRoot ls-remote --tags origin $versionTag
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect remote git tags."
+}
+if ([string]::IsNullOrWhiteSpace($remoteTag)) {
+    Write-Host "Pushing tag $versionTag ..."
+    Invoke-Native -FileName "git" -Arguments @("-C", $repoRoot, "push", "origin", $versionTag)
+}
+else {
+    Write-Host "Remote tag $versionTag already exists."
+}
 
 $releaseExists = $true
-try {
-    gh release view $versionTag --repo $OwnerRepo | Out-Null
-}
-catch {
+& gh release view $versionTag --repo $OwnerRepo | Out-Null
+if ($LASTEXITCODE -ne 0) {
     $releaseExists = $false
 }
 
 $notes = "Release $versionTag"
 if ($releaseExists) {
     Write-Host "Uploading update assets to existing GitHub release $versionTag ..."
-    gh release upload $versionTag $installerPath $manifestPathResolved --repo $OwnerRepo --clobber
-    gh release edit $versionTag --repo $OwnerRepo --title $versionTag --notes $notes --latest
+    Invoke-Native -FileName "gh" -Arguments @("release", "upload", $versionTag, $installerPath, $manifestPathResolved, "--repo", $OwnerRepo, "--clobber")
+    Invoke-Native -FileName "gh" -Arguments @("release", "edit", $versionTag, "--repo", $OwnerRepo, "--title", $versionTag, "--notes", $notes, "--latest")
 }
 else {
     Write-Host "Creating GitHub release $versionTag ..."
-    $args = @("release", "create", $versionTag, "$installerPath", "$manifestPathResolved", "--repo", $OwnerRepo, "--title", $versionTag, "--notes", $notes, "--latest")
+    $args = @("release", "create", $versionTag, $installerPath, $manifestPathResolved, "--repo", $OwnerRepo, "--title", $versionTag, "--notes", $notes, "--latest")
     if ($Draft) { $args += "--draft" }
     if ($Prerelease) { $args += "--prerelease" }
-    & gh @args
+    Invoke-Native -FileName "gh" -Arguments $args
 }
 
 Write-Host ""
