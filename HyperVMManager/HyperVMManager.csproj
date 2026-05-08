@@ -9,10 +9,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <Configurations>Release</Configurations>
-    <Version>1.1.7</Version>
-    <AssemblyVersion>1.1.7.0</AssemblyVersion>
-    <FileVersion>1.1.7.0</FileVersion>
-    <InformationalVersion>1.1.7</InformationalVersion>
+    <Version>1.1.8</Version>
+    <AssemblyVersion>1.1.8.0</AssemblyVersion>
+    <FileVersion>1.1.8.0</FileVersion>
+    <InformationalVersion>1.1.8</InformationalVersion>
   </PropertyGroup>
 
   <Target Name="EnforceReleaseOnly" BeforeTargets="PrepareForBuild;CoreCompile" Condition="'$(Configuration)' != 'Release'">

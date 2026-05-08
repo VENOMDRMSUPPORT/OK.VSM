@@ -342,6 +342,37 @@ namespace HyperVMManager.Services;
 			return (ok: true, isExternal: type.Equals ("External", StringComparison.OrdinalIgnoreCase), switchType: type, message: string.Empty);
 		}
 
+		public static (bool ok, IReadOnlyList<string> adapterNames, string message) ListPhysicalNetAdapters ()
+		{
+			string script =
+				"$ErrorActionPreference = 'SilentlyContinue'\r\n" +
+				"@(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Sort-Object Name | ForEach-Object { [string]$_.Name }) | ConvertTo-Json -Compress\r\n";
+			var (flag, text) = RunScript (script);
+			if (!flag) {
+				return (ok: false, adapterNames: Array.Empty<string> (), message: HumanizePowerShellOutput (text));
+			}
+			return (ok: true, adapterNames: ParseJsonStringArray (text), message: string.Empty);
+		}
+
+		public static (bool ok, string switchName, string message) CreateExternalSwitch (string adapterName)
+		{
+			string safeName = "VENOM-External";
+			string value  = "'" + EscapeSingleQuoted (safeName) + "'";
+			string value2 = "'" + EscapeSingleQuoted (adapterName.Trim ()) + "'";
+			string script =
+				"$ErrorActionPreference = 'Stop'\r\n" +
+				"$existing = Get-VMSwitch -Name " + value + " -ErrorAction SilentlyContinue\r\n" +
+				"if ($existing) { [string]$existing.Name; return }\r\n" +
+				"$sw = New-VMSwitch -Name " + value + " -NetAdapterName " + value2 + " -AllowManagementOS $true -ErrorAction Stop\r\n" +
+				"[string]$sw.Name\r\n";
+			var (flag, text) = RunScript (script);
+			if (!flag) {
+				return (ok: false, switchName: "", message: HumanizePowerShellOutput (text));
+			}
+			string name = text.Trim ();
+			return (ok: true, switchName: name.Length > 0 ? name : safeName, message: string.Empty);
+		}
+
 		private static IReadOnlyList<string> ParseJsonStringArray (string json)
 		{
 			if (string.IsNullOrWhiteSpace (json)) {

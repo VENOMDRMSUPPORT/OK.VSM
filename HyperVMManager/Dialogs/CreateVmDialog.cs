@@ -45,8 +45,12 @@ namespace HyperVMManager.Dialogs;
 			var (flag, readOnlyList, text) = VmControlService.ListVirtualSwitchNames ();
 			if (flag && readOnlyList.Count > 0) {
 				_resolvedSwitchName = readOnlyList[0];
-			} else if (!flag) {
-				MessageBox.Show (string.IsNullOrWhiteSpace (text) ? "Could not list virtual switches." : text, "Hyper-V", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			} else {
+				if (!flag) {
+					MessageBox.Show (string.IsNullOrWhiteSpace (text) ? "Could not list virtual switches." : text, "Hyper-V", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+				}
+				// No External switch found — offer to create one automatically
+				TryAutoCreateExternalSwitch ();
 			}
 
 			// Load existing VMs for duplicate checking
@@ -72,6 +76,50 @@ namespace HyperVMManager.Dialogs;
 			if (CmbCloud.Items.Count > 0) {
 				CmbCloud.SelectedIndex = 0;
 			}
+		}
+
+		private void TryAutoCreateExternalSwitch ()
+		{
+			var (adaptersOk, adapters, _) = VmControlService.ListPhysicalNetAdapters ();
+			if (!adaptersOk || adapters.Count == 0) {
+				MessageBox.Show (
+					"No External Hyper-V switch found and no active physical network adapter is available to create one.\n\nConnect a network adapter and retry.",
+					"No network switch",
+					MessageBoxButton.OK,
+					MessageBoxImage.Exclamation);
+				return;
+			}
+
+			string adapterList = string.Join ("\n", adapters.Select ((a, i) => $"  • {a}"));
+			string adapterToUse = adapters[0];
+
+			var answer = MessageBox.Show (
+				$"No External Hyper-V switch was found.\n\nCreate one automatically using:\n{adapterList}\n\nClick Yes to create it now.",
+				"Create External Switch",
+				MessageBoxButton.YesNo,
+				MessageBoxImage.Question,
+				MessageBoxResult.Yes);
+
+			if (answer != MessageBoxResult.Yes) {
+				return;
+			}
+
+			var (ok, switchName, error) = VmControlService.CreateExternalSwitch (adapterToUse);
+			if (!ok) {
+				MessageBox.Show (
+					"Could not create External switch:\n\n" + error + "\n\nCreate it manually in Hyper-V Manager → Virtual Switch Manager → New → External.",
+					"Create External Switch",
+					MessageBoxButton.OK,
+					MessageBoxImage.Exclamation);
+				return;
+			}
+
+			_resolvedSwitchName = switchName;
+			MessageBox.Show (
+				$"External switch \"{switchName}\" created successfully.",
+				"Switch Ready",
+				MessageBoxButton.OK,
+				MessageBoxImage.Information);
 		}
 
 		private static string ResolveVhdxBaseDirectory ()

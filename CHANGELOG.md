@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [1.1.8] - 2026-05-08
+### Fixed
+- Auto-create External Hyper-V switch when none exists: the Create VM dialog now detects available physical network adapters and offers to create the required External switch with one click instead of blocking with a manual instruction.
+
 ## [1.1.7] - 2026-05-08
 ### Fixed
 - Enforce External Hyper-V switch for Ubuntu cloud VM creation — creation is blocked with a clear message when no External switch is available, preventing wrong IP assignment and missing internet access.
