@@ -169,7 +169,7 @@ else {
 }
 
 $releaseExists = $true
-& gh release view $versionTag --repo $OwnerRepo | Out-Null
+& gh release view $versionTag --repo $OwnerRepo 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
     $releaseExists = $false
 }
@@ -186,6 +186,15 @@ else {
     if ($Draft) { $args += "--draft" }
     if ($Prerelease) { $args += "--prerelease" }
     Invoke-Native -FileName "gh" -Arguments $args
+}
+
+Invoke-Native -FileName "gh" -Arguments @("release", "edit", $versionTag, "--repo", $OwnerRepo, "--title", $versionTag, "--notes", $notes, "--latest")
+$latestTag = (& gh api "repos/$OwnerRepo/releases/latest" --jq ".tag_name")
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not verify the latest GitHub release."
+}
+if ($latestTag.Trim() -ne $versionTag) {
+    throw "GitHub latest release is $($latestTag.Trim()), expected $versionTag."
 }
 
 Write-Host ""
