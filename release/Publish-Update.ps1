@@ -169,8 +169,16 @@ else {
 }
 
 $releaseExists = $true
-& gh release view $versionTag --repo $OwnerRepo 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) {
+try {
+    $oldErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & gh release view $versionTag --repo $OwnerRepo *> $null
+    $releaseViewExitCode = $LASTEXITCODE
+}
+finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+}
+if ($releaseViewExitCode -ne 0) {
     $releaseExists = $false
 }
 
