@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [1.1.6] - 2026-05-08
+### Fixed
+- Keep NoCloud seed boot behavior stable while fixing password provisioning.
+- Use plain_text_passwd together with chpasswd runcmd to ensure admin password is always set.
+- Keep Ubuntu-compatible password provisioning commands only.
+
 ## [1.1.5] - 2026-05-08
 ### Fixed
 - Use DHCP networking automatically on Hyper-V Default Switch / WSL switches so Ubuntu keeps internet access.

@@ -126,6 +126,7 @@ namespace HyperVMManager.Services;
 			}
 			L ("  - bash -c 'rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf /etc/ssh/sshd_config.d/60-cloudimg-settings.conf /etc/ssh/sshd_config.d/99-cloud-init.conf'");
 			L ("  - bash -c " + ShellSingleQuote ("printf '%s\\n' " + ShellSingleQuote (text2 + ":" + p.AdminPassword) + " " + ShellSingleQuote ("root:" + p.AdminPassword) + " | chpasswd"));
+			L ("  - bash -c " + ShellSingleQuote ("hash=$(openssl passwd -6 " + ShellSingleQuote (p.AdminPassword) + "); usermod --password \"$hash\" " + ShellSingleQuote (text2) + "; usermod --password \"$hash\" root; usermod -U " + ShellSingleQuote (text2) + " || true; passwd -u root || true"));
 			L ("  - systemctl daemon-reload || true");
 			L ("  - systemctl unmask ssh.service ssh.socket || true");
 			L ("  - systemctl enable ssh.service || true");
