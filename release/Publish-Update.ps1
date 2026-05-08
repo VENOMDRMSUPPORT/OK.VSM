@@ -65,7 +65,8 @@ if (-not $GitHubRelease) {
 $statusAfterBuild = @(git status --porcelain)
 if ($statusAfterBuild.Count -gt 0) {
     $manifestRepoPath = (Resolve-Path $resolvedManifestPath).Path
-    $repoRoot = (git rev-parse --show-toplevel).Trim()
+    $repoRoot = (git rev-parse --show-toplevel).Trim().Replace('/', '\')
+    $manifestRepoPath = $manifestRepoPath.Replace('/', '\')
     $repoRootWithSlash = $repoRoot.TrimEnd('\') + '\'
     if (-not $manifestRepoPath.StartsWith($repoRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Manifest path is outside the git repository: $manifestRepoPath"
