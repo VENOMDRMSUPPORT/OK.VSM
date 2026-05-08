@@ -35,6 +35,10 @@ $resolvedManifestPath = Resolve-Path $ManifestPath
 $version = Get-ProjectVersion -CsprojPath $resolvedProjectPath
 $versionTag = "v$version"
 
+if ($GitHubRelease) {
+    Assert-CleanGitWorktree
+}
+
 & (Join-Path $PSScriptRoot "Publish-Release.ps1") `
     -ProjectPath $ProjectPath `
     -InnoScriptPath $InnoScriptPath `
@@ -58,7 +62,20 @@ if (-not $GitHubRelease) {
     exit 0
 }
 
-Assert-CleanGitWorktree
+$statusAfterBuild = @(git status --porcelain)
+if ($statusAfterBuild.Count -gt 0) {
+    $manifestRepoPath = (Resolve-Path $resolvedManifestPath).Path
+    $repoRoot = (git rev-parse --show-toplevel).Trim()
+    $manifestRelativePath = [System.IO.Path]::GetRelativePath($repoRoot, $manifestRepoPath).Replace('\', '/')
+    $allowed = @(" M $manifestRelativePath", "M  $manifestRelativePath", "MM $manifestRelativePath")
+    $unexpected = @($statusAfterBuild | Where-Object { $allowed -notcontains $_ })
+    if ($unexpected.Count -gt 0) {
+        throw "Build left unexpected git changes:`n$($unexpected -join "`n")"
+    }
+
+    git add -- $manifestRelativePath
+    git commit -m "Update release manifest for $versionTag"
+}
 
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if ($null -eq $gh) {
