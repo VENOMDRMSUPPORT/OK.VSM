@@ -66,7 +66,11 @@ $statusAfterBuild = @(git status --porcelain)
 if ($statusAfterBuild.Count -gt 0) {
     $manifestRepoPath = (Resolve-Path $resolvedManifestPath).Path
     $repoRoot = (git rev-parse --show-toplevel).Trim()
-    $manifestRelativePath = [System.IO.Path]::GetRelativePath($repoRoot, $manifestRepoPath).Replace('\', '/')
+    $repoRootWithSlash = $repoRoot.TrimEnd('\') + '\'
+    if (-not $manifestRepoPath.StartsWith($repoRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Manifest path is outside the git repository: $manifestRepoPath"
+    }
+    $manifestRelativePath = $manifestRepoPath.Substring($repoRootWithSlash.Length).Replace('\', '/')
     $allowed = @(" M $manifestRelativePath", "M  $manifestRelativePath", "MM $manifestRelativePath")
     $unexpected = @($statusAfterBuild | Where-Object { $allowed -notcontains $_ })
     if ($unexpected.Count -gt 0) {
