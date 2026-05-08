@@ -76,6 +76,7 @@ namespace HyperVMManager.Services;
 			L ("disable_root: false");
 			L ("chpasswd:");
 			L ("  list: |");
+			L ("    " + text2 + ":" + p.AdminPassword);
 			L ("    root:" + p.AdminPassword);
 			L ("  expire: false");
 			L ("write_files:");
@@ -119,16 +120,17 @@ namespace HyperVMManager.Services;
 			L ("      PasswordAuthentication yes");
 			L ("      KbdInteractiveAuthentication yes");
 			L ("runcmd:");
-			L ("  - rm -f /etc/netplan/50-cloud-init.yaml /etc/netplan/90-hotplug-azure.yaml");
-			L ("  - netplan apply || true");
+			if (text3.Length > 0 && text4.Length > 0 && prefixLength >= 1 && prefixLength <= 32) {
+				L ("  - rm -f /etc/netplan/50-cloud-init.yaml /etc/netplan/90-hotplug-azure.yaml");
+				L ("  - netplan apply || true");
+			}
 			L ("  - bash -c 'rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf /etc/ssh/sshd_config.d/60-cloudimg-settings.conf /etc/ssh/sshd_config.d/99-cloud-init.conf'");
-			L ("  - bash -c \"echo '" + text2 + ":" + p.AdminPassword + "' | chpasswd\"");
+			L ("  - bash -c " + ShellSingleQuote ("printf '%s\\n' " + ShellSingleQuote (text2 + ":" + p.AdminPassword) + " " + ShellSingleQuote ("root:" + p.AdminPassword) + " | chpasswd"));
 			L ("  - systemctl daemon-reload || true");
 			L ("  - systemctl unmask ssh.service ssh.socket || true");
 			L ("  - systemctl enable ssh.service || true");
 			L ("  - systemctl enable ssh.socket || true");
 			L ("  - systemctl reload ssh || systemctl restart ssh || systemctl restart sshd || true");
-			L ("  - apt-get update -q && apt-get install -y -q net-tools || true");
 			return sb.ToString ();
 			void L (string s)
 			{
@@ -215,6 +217,11 @@ namespace HyperVMManager.Services;
 		private static string YamlQuote (string s)
 		{
 			return "'" + s.Replace ("'", "''") + "'";
+		}
+
+		private static string ShellSingleQuote (string s)
+		{
+			return "'" + s.Replace ("'", "'\"'\"'") + "'";
 		}
 	}
 

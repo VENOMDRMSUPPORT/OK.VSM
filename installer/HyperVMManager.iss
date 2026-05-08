@@ -1,8 +1,9 @@
-#define AppName "HyperVMManager"
-#define AppVersion "1.1.0"
+#define AppName "VENOM VM-WARE"
+#define AppVersion "1.1.5"
 #define AppPublisher "VENOMDRMSUPPORT"
 #define AppExeName "HyperVMManager.exe"
 #define BuildOutput "..\\HyperVMManager\\bin\\Release\\net8.0-windows"
+#define AppIcon "..\\HyperVMManager\\Assets\\AppIcon.ico"
 
 [Setup]
 AppId={{7BA11AF8-5582-4473-B64A-3F67BFC4A53D}}
@@ -20,6 +21,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 WizardStyle=modern
 UninstallDisplayIcon={app}\\{#AppExeName}
+UninstallDisplayName={#AppName}
+SetupIconFile={#AppIcon}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -31,8 +34,8 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 Source: "{#BuildOutput}\\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"
-Name: "{autodesktop}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"; IconFilename: "{app}\\{#AppExeName}"
+Name: "{autodesktop}\\{#AppName}"; Filename: "{app}\\{#AppExeName}"; IconFilename: "{app}\\{#AppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent runascurrentuser

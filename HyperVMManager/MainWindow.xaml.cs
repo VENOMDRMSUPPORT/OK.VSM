@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using HyperVMManager.Dialogs;
 using HyperVMManager.Models;
 using HyperVMManager.Services;
 using HyperVMManager.ViewModels;
@@ -27,9 +28,21 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         _viewModel.VirtualMachines.CollectionChanged += VirtualMachines_CollectionChanged;
         UpdateStats();
+        Title = AppBrand.DisplayName;
+        TxtBrandName.Text = AppBrand.DisplayName;
         TxtAppVersion.Text = "v" + GetCurrentAppVersion();
 
         _ = CheckForUpdatesAsync(silentIfNoUpdate: true);
+        Loaded += MainWindow_Loaded;
+    }
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        var settings = AppUserSettings.Load();
+        if (!settings.HasSeenFirstRunTips)
+        {
+            TutorialDialog.ShowFor(this, markSeen: true);
+        }
     }
 
     private static string GetCurrentAppVersion()
@@ -191,6 +204,11 @@ public partial class MainWindow : Window
     private async void BtnCheckUpdates_Click(object sender, RoutedEventArgs e)
     {
         await CheckForUpdatesAsync(silentIfNoUpdate: false);
+    }
+
+    private void BtnHelp_Click(object sender, RoutedEventArgs e)
+    {
+        TutorialDialog.ShowFor(this, markSeen: false);
     }
 
     private void VmDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)

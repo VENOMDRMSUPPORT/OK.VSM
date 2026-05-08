@@ -260,6 +260,46 @@
               </Border>
             </Grid>
           </Border>
+          <TextBlock Text="DISK LOCATION" FontSize="10" FontWeight="SemiBold" Foreground="#6E7681" Margin="16,20,16,8" FontFamily="Segoe UI" />
+          <Border Margin="16,0,16,0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14,12">
+            <StackPanel>
+              <Grid Margin="0,0,0,12">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0">
+                  <TextBlock Text="OS disk" FontSize="10" Foreground="#6E7681" FontFamily="Segoe UI" VerticalAlignment="Center" />
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Style="{StaticResource CopyMiniBtn}" ToolTipService.ToolTip="Copy OS disk path" Command="{Binding CopyDrawerOsVhdPathCommand}">
+                      <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="#8B949E" />
+                    </Button>
+                    <Button Style="{StaticResource CopyMiniBtn}" Margin="4,0,0,0" ToolTipService.ToolTip="Open disk folder" Command="{Binding OpenDrawerDiskFolderCommand}">
+                      <TextBlock Text="&#xE8DA;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="#8B949E" />
+                    </Button>
+                  </StackPanel>
+                </Grid>
+                <TextBlock Grid.Row="1" Margin="0,6,0,0" FontSize="12" Foreground="#F0F6FC" TextWrapping="Wrap" FontFamily="Consolas" Text="{Binding SelectedVm.OsVhdPath}" />
+                <TextBlock Grid.Row="2" Margin="0,5,0,0" FontSize="11" Foreground="#8B949E" FontFamily="Segoe UI" Text="{Binding SelectedVm.OsVhdActualSize, StringFormat={}Actual file size: {0}}" Visibility="{Binding SelectedVm.HasOsVhdActualSize, Converter={StaticResource BoolToVis}}" />
+              </Grid>
+              <Grid Visibility="{Binding SelectedVm.HasSeedVhdPath, Converter={StaticResource BoolToVis}}">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0">
+                  <TextBlock Text="CIDATA seed VHDX" FontSize="10" Foreground="#6E7681" FontFamily="Segoe UI" VerticalAlignment="Center" />
+                  <Button HorizontalAlignment="Right" Style="{StaticResource CopyMiniBtn}" ToolTipService.ToolTip="Copy seed VHDX path" Command="{Binding CopyDrawerSeedVhdPathCommand}">
+                    <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="#8B949E" />
+                  </Button>
+                </Grid>
+                <TextBlock Grid.Row="1" Margin="0,6,0,0" FontSize="12" Foreground="#F0F6FC" TextWrapping="Wrap" FontFamily="Consolas" Text="{Binding SelectedVm.SeedVhdPath}" />
+                <TextBlock Grid.Row="2" Margin="0,5,0,0" FontSize="11" Foreground="#8B949E" FontFamily="Segoe UI" Text="{Binding SelectedVm.SeedVhdActualSize, StringFormat={}Actual file size: {0}}" Visibility="{Binding SelectedVm.HasSeedVhdActualSize, Converter={StaticResource BoolToVis}}" />
+              </Grid>
+            </StackPanel>
+          </Border>
           <TextBlock Text="RESOURCE ALLOCATION" FontSize="10" FontWeight="SemiBold" Foreground="#6E7681" Margin="16,20,16,8" FontFamily="Segoe UI" />
           <Border Margin="16,0,16,0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14,12">
             <StackPanel>

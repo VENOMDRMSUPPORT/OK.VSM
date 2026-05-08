@@ -54,6 +54,14 @@ namespace HyperVMManager.Services;
 			public string OsHint { get; init; } = "—";
 
 			public string InstallHint { get; init; } = "";
+
+			public string OsVhdPath { get; init; } = "";
+
+			public string SeedVhdPath { get; init; } = "";
+
+			public string OsVhdActualSize { get; init; } = "";
+
+			public string SeedVhdActualSize { get; init; } = "";
 		}
 
 		public sealed class VmNetworkRow
@@ -300,12 +308,17 @@ namespace HyperVMManager.Services;
 				string ipv = (string)obj2;
 				JsonElement value5;
 				string installHint = (rootElement.TryGetProperty ("InstallHint", out value5) ? (value5.GetString () ?? "") : "");
+				HyperVService.QueryVmDiskInfoViaPowerShell ().TryGetValue (vmName, out var diskInfo);
 				return new VmExtendedInfo {
 					Mac = mac,
 					Ipv4 = text6,
 					Ipv6 = ipv,
 					OsHint = text4,
-					InstallHint = installHint
+					InstallHint = installHint,
+					OsVhdPath = diskInfo?.OsVhdPath ?? "",
+					SeedVhdPath = diskInfo?.SeedVhdPath ?? "",
+					OsVhdActualSize = diskInfo?.OsVhdActualSize ?? "",
+					SeedVhdActualSize = diskInfo?.SeedVhdActualSize ?? ""
 				};
 			} catch {
 				return new VmExtendedInfo {

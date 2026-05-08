@@ -313,11 +313,19 @@ public VirtualMachine? SelectedVm
 
 	public ICommand CopyDrawerMacCommand { get; }
 
+	public ICommand CopyDrawerOsVhdPathCommand { get; }
+
+	public ICommand CopyDrawerSeedVhdPathCommand { get; }
+
+	public ICommand OpenDrawerDiskFolderCommand { get; }
+
 	public ICommand RemoveVirtualDvdCommand { get; }
 
 	public ICommand OpenNetworkPoolSettingsCommand { get; }
 
 	public ICommand OpenCreateUbuntuVmCommand { get; }
+
+	public ICommand OpenHelpCommand { get; }
 
 	public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -355,6 +363,15 @@ public VirtualMachine? SelectedVm
 		{
 			CopyIfValue(DrawerMac);
 		});
+		CopyDrawerOsVhdPathCommand = new DelegateCommand(delegate
+		{
+			CopyIfValue(SelectedVm?.OsVhdPath);
+		});
+		CopyDrawerSeedVhdPathCommand = new DelegateCommand(delegate
+		{
+			CopyIfValue(SelectedVm?.SeedVhdPath);
+		});
+		OpenDrawerDiskFolderCommand = new DelegateCommand(OpenSelectedVmDiskFolder);
 		RemoveVirtualDvdCommand = new AsyncRelayCommand<VirtualMachine>(OnRemoveVirtualDvdAsync, (VirtualMachine? _) => true);
 		OpenNetworkPoolSettingsCommand = new RelayCommand(async delegate
 		{
@@ -363,6 +380,10 @@ public VirtualMachine? SelectedVm
 		OpenCreateUbuntuVmCommand = new RelayCommand(async delegate
 		{
 			await OnOpenCreateUbuntuVmAsync();
+		});
+		OpenHelpCommand = new DelegateCommand(delegate
+		{
+			TutorialDialog.ShowFor(Application.Current.MainWindow, markSeen: false);
 		});
 		_liveRefreshTimer = new DispatcherTimer
 		{
@@ -423,6 +444,10 @@ public VirtualMachine? SelectedVm
 				virtualMachine.Status = value.Status;
 				virtualMachine.Uptime = value.Uptime;
 				virtualMachine.IsRunning = value.IsRunning;
+				virtualMachine.OsVhdPath = value.OsVhdPath;
+				virtualMachine.SeedVhdPath = value.SeedVhdPath;
+				virtualMachine.OsVhdActualSize = value.OsVhdActualSize;
+				virtualMachine.SeedVhdActualSize = value.SeedVhdActualSize;
 			}
 		}
 		foreach (VirtualMachine nv in fresh)
@@ -686,6 +711,15 @@ public VirtualMachine? SelectedVm
 				Application.Current.Dispatcher.Invoke(() => CreateVmProgressText = step2);
 			});
 			CreateUbuntuCloudVmParameters p = createVmDialog.Result;
+			CloudImageCatalogItem image = CloudImageCatalog.GetById(p.CloudImageId);
+			VerifiedCachedArchive archive = await CloudImageCacheService.EnsureVerifiedArchiveAsync(image, progress);
+			ExtractedOsDisk extractedDisk = await CloudImageCacheService.ExtractFinalOsDiskAsync(archive, p.OsVhdFullPath, progress);
+			if (!string.Equals(extractedDisk.DiskPath, p.OsVhdFullPath, StringComparison.OrdinalIgnoreCase))
+			{
+				MessageBox.Show("Ubuntu OS disk was prepared at an unexpected path:\n" + extractedDisk.DiskPath, "Create VM", MessageBoxButton.OK, MessageBoxImage.Hand);
+				StatusText = "Create VM failed.";
+				return;
+			}
 			var (flag, messageBoxText) = await Task.Run(() => VmControlService.CreateUbuntuCloudVm(p, progress));
 			if (!flag)
 			{
@@ -694,12 +728,15 @@ public VirtualMachine? SelectedVm
 				return;
 			}
 			VmProvisionStore.MarkProvisioning(p.VmName, p.StaticGuestIpv4, vmDirectory: p.VmDirectory);
-			// Add entry to Windows hosts file
-			string hostsHostname = string.IsNullOrWhiteSpace(p.Hostname) ? p.VmName : p.Hostname.Trim();
-			var (hostsOk, hostsMsg) = await Task.Run(() => HostsFileManager.AddOrUpdateEntry(p.StaticGuestIpv4, hostsHostname, p.VmName));
-			if (!hostsOk)
+			if (!string.IsNullOrWhiteSpace(p.StaticGuestIpv4))
 			{
-				MessageBox.Show("VM created but hosts file update failed:\n" + hostsMsg, "Hosts File", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+				// Add entry to Windows hosts file when a static guest address is known.
+				string hostsHostname = string.IsNullOrWhiteSpace(p.Hostname) ? p.VmName : p.Hostname.Trim();
+				var (hostsOk, hostsMsg) = await Task.Run(() => HostsFileManager.AddOrUpdateEntry(p.StaticGuestIpv4, hostsHostname, p.VmName));
+				if (!hostsOk)
+				{
+					MessageBox.Show("VM created but hosts file update failed:\n" + hostsMsg, "Hosts File", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+				}
 			}
 
 			CreateVmProgressText = CreateVmProgressText = "Starting VM…";
@@ -717,6 +754,16 @@ public VirtualMachine? SelectedVm
 				IsCreateVmBusy = false;
 				await AfterVmActionAsync();
 			}
+		}
+		catch (Exception ex)
+		{
+			string message = ex.Message;
+			if (ex.InnerException != null && !string.IsNullOrWhiteSpace(ex.InnerException.Message))
+			{
+				message += "\n\n" + ex.InnerException.Message;
+			}
+			MessageBox.Show("Create VM failed:\n" + message, "Create VM", MessageBoxButton.OK, MessageBoxImage.Hand);
+			StatusText = "Create VM failed.";
 		}
 		finally
 		{
@@ -783,6 +830,10 @@ public VirtualMachine? SelectedVm
 					DrawerMac = ((text.Length > 0) ? text : "—");
 					DrawerOsHint = (string.IsNullOrWhiteSpace(info.OsHint) ? "—" : info.OsHint);
 					DrawerInstallHint = (string.IsNullOrWhiteSpace(info.InstallHint) ? "" : info.InstallHint.Trim());
+					SelectedVm.OsVhdPath = info.OsVhdPath;
+					SelectedVm.SeedVhdPath = info.SeedVhdPath;
+					SelectedVm.OsVhdActualSize = info.OsVhdActualSize;
+					SelectedVm.SeedVhdActualSize = info.SeedVhdActualSize;
 					ApplyOsIconGlyph(info.OsHint ?? "", this);
 				}
 			});
@@ -806,6 +857,36 @@ public VirtualMachine? SelectedVm
 			{
 				StatusText = "Opened VM Connection for “" + SelectedVm.Name + "”.";
 			}
+		}
+	}
+
+	private void OpenSelectedVmDiskFolder()
+	{
+		string? path = SelectedVm?.OsVhdPath;
+		if (string.IsNullOrWhiteSpace(path) || path == "—" || path == "â€”")
+		{
+			MessageBox.Show("No VHDX path is available for the selected VM yet.", "Disk location", MessageBoxButton.OK, MessageBoxImage.Information);
+			return;
+		}
+
+		string? folder = System.IO.Path.GetDirectoryName(path);
+		if (string.IsNullOrWhiteSpace(folder) || !System.IO.Directory.Exists(folder))
+		{
+			MessageBox.Show("The disk folder no longer exists:\n" + (folder ?? path), "Disk location", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+
+		try
+		{
+			System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+			{
+				FileName = folder,
+				UseShellExecute = true
+			});
+		}
+		catch (Exception ex)
+		{
+			MessageBox.Show("Could not open the disk folder:\n" + ex.Message, "Disk location", MessageBoxButton.OK, MessageBoxImage.Exclamation);
 		}
 	}
 
@@ -1022,6 +1103,24 @@ public VirtualMachine? SelectedVm
 		if (mainWindow != null && DeleteVmDialog.Show(mainWindow, vm.Name))
 		{
 			StatusText = "Stopping and deleting \"" + vm.Name + "\"...";
+			List<string> diskPaths = new List<string>();
+			if (!string.IsNullOrWhiteSpace(vm.OsVhdPath) && vm.OsVhdPath != "—" && vm.OsVhdPath != "â€”")
+			{
+				diskPaths.Add(vm.OsVhdPath);
+			}
+			if (!string.IsNullOrWhiteSpace(vm.SeedVhdPath))
+			{
+				diskPaths.Add(vm.SeedVhdPath);
+			}
+			if (diskPaths.Count == 0)
+			{
+				Dictionary<string, VmDiskInfo> diskInfo = await Task.Run(() => HyperVService.QueryVmDiskInfoViaPowerShell());
+				if (diskInfo.TryGetValue(vm.Name, out var info))
+				{
+					if (!string.IsNullOrWhiteSpace(info.OsVhdPath)) diskPaths.Add(info.OsVhdPath);
+					if (!string.IsNullOrWhiteSpace(info.SeedVhdPath)) diskPaths.Add(info.SeedVhdPath);
+				}
+			}
 			var (ok, msg) = await Task.Run(() => VmControlService.Delete(vm.Name));
 			if (!ok)
 			{
@@ -1030,12 +1129,11 @@ public VirtualMachine? SelectedVm
 				return;
 			}
 			string vmDir = VmProvisionStore.GetVmDirectory(vm.Name);
-			if (string.IsNullOrEmpty(vmDir)) { vmDir = ResolveVmDirectory(vm.Name); }
 						// Remove entry from Windows hosts file
 			var (hOk, hMsg) = await Task.Run(() => HostsFileManager.RemoveEntry(vm.Name));
 
 			StatusText = "Removing disk files for \"" + vm.Name + "\"...";
-			var (ok2, msg2) = await Task.Run(() => VmControlService.DeleteVmFiles(vmDir));
+			var (ok2, msg2) = await Task.Run(() => VmControlService.DeleteVmStorage(vm.Name, vmDir, diskPaths));
 			if (!ok2)
 			{
 				MessageBox.Show("VM deleted from Hyper-V but disk files could not be removed:\n" + msg2, "Delete VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);

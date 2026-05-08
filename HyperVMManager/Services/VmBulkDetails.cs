@@ -49,5 +49,7 @@ namespace HyperVMManager.Services;
 
 		public Dictionary<string, ulong> DiskBytesByVm { get; init; } = new Dictionary<string, ulong> ();
 
+		public Dictionary<string, VmDiskInfo> DiskInfoByVmName { get; init; } = new Dictionary<string, VmDiskInfo> (StringComparer.OrdinalIgnoreCase);
+
 		public required HostResourceSnapshot Host { get; init; }
-	}
+	}

@@ -83,6 +83,14 @@ namespace HyperVMManager.Models;
 
 		private bool _isInstalling;
 
+		private string _osVhdPath = "—";
+
+		private string _seedVhdPath = "";
+
+		private string _osVhdActualSize = "";
+
+		private string _seedVhdActualSize = "";
+
 		public string Name { get; set; } = string.Empty;
 
 		public ushort EnabledState { get; set; }
@@ -291,6 +299,58 @@ namespace HyperVMManager.Models;
 				OnPropertyChanged ("IsInstalling");
 			}
 		}
+
+		public string OsVhdPath {
+			get {
+				return _osVhdPath;
+			}
+			set {
+				_osVhdPath = string.IsNullOrWhiteSpace (value) ? "—" : value;
+				OnPropertyChanged ("OsVhdPath");
+				OnPropertyChanged ("HasOsVhdPath");
+			}
+		}
+
+		public bool HasOsVhdPath => !string.IsNullOrWhiteSpace (_osVhdPath) && _osVhdPath != "—";
+
+		public string SeedVhdPath {
+			get {
+				return _seedVhdPath;
+			}
+			set {
+				_seedVhdPath = value ?? "";
+				OnPropertyChanged ("SeedVhdPath");
+				OnPropertyChanged ("HasSeedVhdPath");
+			}
+		}
+
+		public bool HasSeedVhdPath => !string.IsNullOrWhiteSpace (_seedVhdPath);
+
+		public string OsVhdActualSize {
+			get {
+				return _osVhdActualSize;
+			}
+			set {
+				_osVhdActualSize = value ?? "";
+				OnPropertyChanged ("OsVhdActualSize");
+				OnPropertyChanged ("HasOsVhdActualSize");
+			}
+		}
+
+		public bool HasOsVhdActualSize => !string.IsNullOrWhiteSpace (_osVhdActualSize);
+
+		public string SeedVhdActualSize {
+			get {
+				return _seedVhdActualSize;
+			}
+			set {
+				_seedVhdActualSize = value ?? "";
+				OnPropertyChanged ("SeedVhdActualSize");
+				OnPropertyChanged ("HasSeedVhdActualSize");
+			}
+		}
+
+		public bool HasSeedVhdActualSize => !string.IsNullOrWhiteSpace (_seedVhdActualSize);
 
 		public event PropertyChangedEventHandler? PropertyChanged;
 

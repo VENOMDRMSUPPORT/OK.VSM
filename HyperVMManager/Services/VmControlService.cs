@@ -183,6 +183,58 @@ namespace HyperVMManager.Services;
 			return RunScriptTryCatch (innerScriptBody);
 		}
 
+		public static (bool ok, string message) DeleteVmStorage (string vmName, string vmDirectory, IReadOnlyList<string> diskPaths)
+		{
+			List<string> confirmedDisks = diskPaths
+				.Where (p => !string.IsNullOrWhiteSpace (p))
+				.Select (p => System.IO.Path.GetFullPath (p.Trim ()))
+				.Where (p => p.EndsWith (".vhdx", StringComparison.OrdinalIgnoreCase) || p.EndsWith (".vhd", StringComparison.OrdinalIgnoreCase))
+				.Distinct (StringComparer.OrdinalIgnoreCase)
+				.ToList ();
+
+			string safeName = SanitizeForPath (vmName);
+			string targetDirectory = "";
+			if (!string.IsNullOrWhiteSpace (vmDirectory) && Directory.Exists (vmDirectory)) {
+				string fullVmDir = System.IO.Path.GetFullPath (vmDirectory);
+				if (string.Equals (new DirectoryInfo (fullVmDir).Name, safeName, StringComparison.OrdinalIgnoreCase)) {
+					targetDirectory = fullVmDir;
+				}
+			}
+			if (targetDirectory.Length == 0 && confirmedDisks.Count > 0) {
+				string? commonDir = System.IO.Path.GetDirectoryName (confirmedDisks [0]);
+				if (!string.IsNullOrWhiteSpace (commonDir)
+					&& confirmedDisks.All (p => string.Equals (System.IO.Path.GetDirectoryName (p), commonDir, StringComparison.OrdinalIgnoreCase))
+					&& string.Equals (new DirectoryInfo (commonDir).Name, safeName, StringComparison.OrdinalIgnoreCase)) {
+					targetDirectory = commonDir;
+				}
+			}
+
+			if (targetDirectory.Length == 0 && confirmedDisks.Count == 0) {
+				return (ok: true, message: string.Empty);
+			}
+
+			string diskArray = "@(" + string.Join (",", confirmedDisks.Select (p => "'" + EscapeSingleQuoted (p) + "'")) + ")";
+			string dirLiteral = "'" + EscapeSingleQuoted (targetDirectory) + "'";
+			string innerScriptBody =
+				"$disks = " + diskArray + "\r\n" +
+				"foreach ($disk in $disks) {\r\n" +
+				"  if ($disk -and (Test-Path -LiteralPath $disk)) { Dismount-VHD -Path $disk -ErrorAction SilentlyContinue }\r\n" +
+				"}\r\n" +
+				"Start-Sleep -Milliseconds 500\r\n" +
+				(targetDirectory.Length > 0
+					? "$dir = " + dirLiteral + "\r\nif (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop }\r\n"
+					: "foreach ($disk in $disks) { if ($disk -and (Test-Path -LiteralPath $disk)) { Remove-Item -LiteralPath $disk -Force -ErrorAction Stop } }\r\n");
+			return RunScriptTryCatch (innerScriptBody);
+		}
+
+		private static string SanitizeForPath (string input)
+		{
+			if (string.IsNullOrWhiteSpace (input)) {
+				return "";
+			}
+			return string.Join ("_", input.Split (System.IO.Path.GetInvalidFileNameChars ()));
+		}
+
 		public static (bool ok, string message) RemoveVirtualDvdDrives (string vmName)
 		{
 			string value = VmLiteral (vmName);
@@ -264,7 +316,7 @@ namespace HyperVMManager.Services;
 
 		public static (bool ok, IReadOnlyList<string> names, string message) ListVirtualSwitchNames ()
 		{
-			string script = "$ErrorActionPreference = 'SilentlyContinue'\r\n@(Get-VMSwitch -SwitchType External | Sort-Object Name | ForEach-Object { [string]$_.Name }) | ConvertTo-Json -Compress\r\n";
+			string script = "$ErrorActionPreference = 'SilentlyContinue'\r\n@(Get-VMSwitch | Sort-Object @{ Expression = { if ($_.SwitchType -eq 'External') { 0 } elseif ($_.Name -eq 'Default Switch') { 1 } else { 2 } } }, Name | ForEach-Object { [string]$_.Name }) | ConvertTo-Json -Compress\r\n";
 			var (flag, text) = RunScript (script);
 			if (!flag) {
 				return (ok: false, names: Array.Empty<string> (), message: HumanizePowerShellOutput (text));
@@ -306,7 +358,7 @@ namespace HyperVMManager.Services;
 			int processorCount = p.ProcessorCount;
 			ulong vhdSizeBytes = p.VhdSizeBytes;
 			(string, string)[] array = new(string, string)[5] {
-				("Preparing VHD directory…", "$dir = Split-Path -LiteralPath " + text + "\r\nif ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }\r\n"),
+				("Preparing VHD directory…", BuildPowerShellVirtualDiskHelpers () + "$dir = Split-Path -LiteralPath " + text + "\r\nif ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }\r\nRepair-VirtualDiskDirectoryForHyperV $dir\r\n"),
 				("Creating virtual machine…", $"New-VM -Name {value} -MemoryStartupBytes {memoryStartupBytes} -Generation 2 -NewVHDPath {text} -NewVHDSizeBytes {vhdSizeBytes} -SwitchName {value2}\r\n"),
 				("Configuring processor…", $"Set-VMProcessor -VMName {value} -Count {processorCount}\r\n"),
 				("Attaching ISO and setting boot order…", $"Add-VMDvdDrive -VMName {value} -Path {value3}\r\n$dvd = Get-VMDvdDrive -VMName {value} | Select-Object -First 1\r\nif (-not $dvd) {{ throw 'No DVD drive after Add-VMDvdDrive' }}\r\nSet-VMFirmware -VMName {value} -SecureBootTemplate MicrosoftUEFICertificateAuthority\r\nSet-VMFirmware -VMName {value} -FirstBootDevice $dvd\r\n"),
@@ -328,10 +380,11 @@ namespace HyperVMManager.Services;
 			string value = VmLiteral (p.VmName);
 			string value2 = VmLiteral (p.SwitchName);
 			string text = "'" + EscapeSingleQuoted (p.OsVhdFullPath) + "'";
-			string value3 = "'" + EscapeSingleQuoted (p.TemplateVhdPath) + "'";
 			string text2 = "'" + EscapeSingleQuoted (p.SeedVhdFullPath) + "'";
 			string value4 = "'" + EscapeSingleQuoted (p.Notes) + "'";
 			long memoryStartupBytes = p.MemoryStartupBytes;
+			long memoryMinimumBytes = p.MemoryMinimumBytes;
+			long memoryMaximumBytes = p.MemoryMaximumBytes;
 			int processorCount = p.ProcessorCount;
 			ulong osDiskSizeBytes = p.OsDiskSizeBytes;
 			string s = CloudInitSeedBuilder.BuildUserData (p);
@@ -340,14 +393,13 @@ namespace HyperVMManager.Services;
 			string udB = Convert.ToBase64String (Encoding.UTF8.GetBytes (s));
 			string mdB = Convert.ToBase64String (Encoding.UTF8.GetBytes (s2));
 			string ncB = ((text3 != null) ? Convert.ToBase64String (Encoding.UTF8.GetBytes (text3)) : "");
-			(string, string)[] array = new(string, string)[8] {
-				("Preparing directories…", $"$os = {text}\r\n$dir = Split-Path -LiteralPath $os\r\nif ($dir -and -not (Test-Path -LiteralPath $dir)) {{ New-Item -ItemType Directory -Path $dir -Force | Out-Null }}\r\n$sd = {text2}\r\n$sdir = Split-Path -LiteralPath $sd\r\nif ($sdir -and -not (Test-Path -LiteralPath $sdir)) {{ New-Item -ItemType Directory -Path $sdir -Force | Out-Null }}\r\n"),
-				("Copying cloud base disk…", $"if (-not (Test-Path -LiteralPath {value3})) {{ throw 'Template VHD not found.' }}\r\nCopy-Item -LiteralPath {value3} -Destination {text} -Force\r\n"),
+			(string, string)[] array = new(string, string)[7] {
+				("Preparing directories…", BuildPowerShellVirtualDiskHelpers () + $"$os = {text}\r\n$dir = Split-Path -LiteralPath $os\r\nif ($dir -and -not (Test-Path -LiteralPath $dir)) {{ New-Item -ItemType Directory -Path $dir -Force | Out-Null }}\r\nRepair-VirtualDiskDirectoryForHyperV $dir\r\n$sd = {text2}\r\n$sdir = Split-Path -LiteralPath $sd\r\nif ($sdir -and -not (Test-Path -LiteralPath $sdir)) {{ New-Item -ItemType Directory -Path $sdir -Force | Out-Null }}\r\nRepair-VirtualDiskDirectoryForHyperV $sdir\r\n"),
 				("Sizing OS disk…", $"$v = Get-VHD -Path {text}\r\nif ($v.Size -lt {osDiskSizeBytes}) {{ Resize-VHD -Path {text} -SizeBytes {osDiskSizeBytes} }}\r\n"),
 				("Patching GRUB for NoCloud datasource…", BuildGrubPatchScript (text)),
 				("Building cloud-init seed disk…", BuildSeedDiskScript (udB, mdB, ncB, text2)),
 				("Creating virtual machine…", $"New-VM -Name {value} -MemoryStartupBytes {memoryStartupBytes} -Generation 2 -VHDPath {text} -SwitchName {value2}\r\n"),
-				("Configuring processor and disks…", $"Set-VMProcessor -VMName {value} -Count {processorCount}\r\nAdd-VMHardDiskDrive -VMName {value} -Path {text2}\r\n$expectedOs = [System.IO.Path]::GetFullPath({text})\r\n$osHdd = @(Get-VMHardDiskDrive -VMName {value} | Where-Object {{ $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $expectedOs) }})[0]\r\nif (-not $osHdd) {{ throw 'UEFI: could not find the OS VHD for FirstBootDevice (path mismatch after attaching seed disk).' }}\r\nSet-VMFirmware -VMName {value} -SecureBootTemplate MicrosoftUEFICertificateAuthority\r\nSet-VMFirmware -VMName {value} -FirstBootDevice $osHdd\r\nGet-VMDvdDrive -VMName {value} -ErrorAction SilentlyContinue | Remove-VMDvdDrive -ErrorAction SilentlyContinue\r\nif (@(Get-VMDvdDrive -VMName {value} -ErrorAction SilentlyContinue).Count -gt 0) {{ throw 'Virtual DVD drive could not be removed; Linux may hang on /dev/sr0.' }}\r\n"),
+				("Configuring shared resources and disks...", $"Set-VMMemory -VMName {value} -DynamicMemoryEnabled $true -MinimumBytes {memoryMinimumBytes} -StartupBytes {memoryStartupBytes} -MaximumBytes {memoryMaximumBytes}\r\nSet-VMProcessor -VMName {value} -Count {processorCount}\r\nAdd-VMHardDiskDrive -VMName {value} -Path {text2}\r\n$expectedOs = [System.IO.Path]::GetFullPath({text})\r\n$osHdd = @(Get-VMHardDiskDrive -VMName {value} | Where-Object {{ $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $expectedOs) }})[0]\r\nif (-not $osHdd) {{ throw 'UEFI: could not find the OS disk for FirstBootDevice (path mismatch after attaching seed disk).' }}\r\nSet-VMFirmware -VMName {value} -SecureBootTemplate MicrosoftUEFICertificateAuthority\r\nSet-VMFirmware -VMName {value} -FirstBootDevice $osHdd\r\nGet-VMDvdDrive -VMName {value} -ErrorAction SilentlyContinue | Remove-VMDvdDrive -ErrorAction SilentlyContinue\r\nif (@(Get-VMDvdDrive -VMName {value} -ErrorAction SilentlyContinue).Count -gt 0) {{ throw 'Virtual DVD drive could not be removed; Linux may hang on /dev/sr0.' }}\r\n"),
 				("Applying VM notes and disabling auto-checkpoints…", $"Set-VM -VMName {value} -Notes {value4}\r\nSet-VM -VMName {value} -AutomaticCheckpointsEnabled $false\r\n")
 			};
 			for (int i = 0; i < array.Length; i++) {
@@ -361,14 +413,62 @@ namespace HyperVMManager.Services;
 			return (ok: true, message: string.Empty);
 		}
 
+		private static string BuildPowerShellVirtualDiskHelpers ()
+		{
+			return """
+function Invoke-NativeForVirtualDisk {
+  param([string]$FileName, [string[]]$Arguments, [string]$Action)
+  $output = (& $FileName @Arguments 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    $message = $output
+    if ([string]::IsNullOrWhiteSpace($message)) { $message = 'The command did not return a message.' }
+    throw "$Action failed: $message"
+  }
+}
+
+function Repair-VirtualDiskDirectoryForHyperV {
+  param([string]$Path)
+  if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Container)) { return }
+  Invoke-NativeForVirtualDisk 'compact.exe' @('/u', $Path) 'Clearing virtual disk directory compression'
+  Invoke-NativeForVirtualDisk 'cipher.exe' @('/d', $Path) 'Clearing virtual disk directory encryption'
+}
+
+function Assert-VirtualDiskFileMountableForHyperV {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Virtual disk not found: $Path" }
+  $attrs = [System.IO.File]::GetAttributes($Path)
+  $blocked = @()
+  if (($attrs -band [System.IO.FileAttributes]::Compressed) -ne 0) { $blocked += 'compressed' }
+  if (($attrs -band [System.IO.FileAttributes]::Encrypted) -ne 0) { $blocked += 'encrypted' }
+  if (($attrs -band [System.IO.FileAttributes]::SparseFile) -ne 0) { $blocked += 'sparse' }
+  if ($blocked.Count -gt 0) {
+    throw "Hyper-V cannot mount '$Path' because it is still $($blocked -join ', '). Move it to an uncompressed local NTFS folder and try again."
+  }
+}
+
+function Repair-VirtualDiskFileForHyperV {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Virtual disk not found: $Path" }
+  Invoke-NativeForVirtualDisk 'compact.exe' @('/u', '/f', $Path) 'Clearing virtual disk compression'
+  Invoke-NativeForVirtualDisk 'cipher.exe' @('/d', $Path) 'Clearing virtual disk encryption'
+  $attrs = [System.IO.File]::GetAttributes($Path)
+  if (($attrs -band [System.IO.FileAttributes]::SparseFile) -ne 0) {
+    Invoke-NativeForVirtualDisk 'fsutil.exe' @('sparse', 'setflag', $Path, '0') 'Clearing virtual disk sparse flag'
+  }
+  Assert-VirtualDiskFileMountableForHyperV $Path
+}
+
+""";
+		}
+
 		private static string BuildGrubPatchScript (string osVhdPsSingleQuoted)
 		{
-			return "$vhd = Mount-VHD -Path " + osVhdPsSingleQuoted + " -PassThru\r\ntry {\r\n  Start-Sleep -Milliseconds 1500\r\n  $disk = $vhd | Get-Disk\r\n  $efiPart = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.GptType -eq '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' } | Select-Object -First 1\r\n  if (-not $efiPart) { Write-Output 'No EFI partition found — skipping GRUB patch.'; return }\r\n  if (-not $efiPart.DriveLetter) {\r\n    $efiPart | Add-PartitionAccessPath -AssignDriveLetter -ErrorAction Stop\r\n    $efiPart = Get-Partition -DiskNumber $disk.Number -PartitionNumber $efiPart.PartitionNumber\r\n  }\r\n  $efiRoot = $efiPart.DriveLetter.ToString() + ':\\'\r\n  $grubCfg = Join-Path $efiRoot 'EFI\\ubuntu\\grub.cfg'\r\n  if (-not (Test-Path $grubCfg)) { $grubCfg = (Get-ChildItem (Join-Path $efiRoot 'EFI') -Recurse -Filter 'grub.cfg' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }\r\n  if (-not $grubCfg -or -not (Test-Path $grubCfg)) { Write-Output 'grub.cfg not found on EFI — skipping patch.'; return }\r\n  $content = [System.IO.File]::ReadAllText($grubCfg)\r\n  Write-Output \"ORIGINAL_GRUB_CFG>>>$content<<<\"\r\n  $match = [regex]::Match($content, 'search\\.fs_uuid\\s+(\\S+)')\r\n  if (-not $match.Success) { Write-Output 'Could not extract root UUID from grub.cfg — skipping patch.'; return }\r\n  $rootUuid = $match.Groups[1].Value\r\n  $pfxMatch = [regex]::Match($content, \"set prefix=\\(\\`$root\\)'([^']+)'\")\r\n  $pfx = if ($pfxMatch.Success) { $pfxMatch.Groups[1].Value } else { '/grub' }\r\n  $newCfg = \"search.fs_uuid $rootUuid root`nset prefix=(`$root)'$pfx'`ninsmod linux`ninsmod gzio`nlinux (`$root)/vmlinuz root=LABEL=cloudimg-rootfs ro quiet splash ds=nocloud`ninitrd (`$root)/initrd.img`nboot`nconfigfile `$prefix/grub.cfg`n\"\r\n  Copy-Item -LiteralPath $grubCfg -Destination ($grubCfg + '.orig') -Force\r\n  [System.IO.File]::WriteAllText($grubCfg, $newCfg, [System.Text.UTF8Encoding]::new($false))\r\n} finally {\r\n  Dismount-VHD -Path " + osVhdPsSingleQuoted + " -ErrorAction SilentlyContinue\r\n}\r\n";
+			return BuildPowerShellVirtualDiskHelpers () + "Assert-VirtualDiskFileMountableForHyperV " + osVhdPsSingleQuoted + "\r\n$vhd = Mount-VHD -Path " + osVhdPsSingleQuoted + " -PassThru\r\ntry {\r\n  Start-Sleep -Milliseconds 1500\r\n  $disk = $vhd | Get-Disk\r\n  $efiPart = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.GptType -eq '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' } | Select-Object -First 1\r\n  if (-not $efiPart) { Write-Output 'No EFI partition found — skipping GRUB patch.'; return }\r\n  if (-not $efiPart.DriveLetter) {\r\n    $efiPart | Add-PartitionAccessPath -AssignDriveLetter -ErrorAction Stop\r\n    $efiPart = Get-Partition -DiskNumber $disk.Number -PartitionNumber $efiPart.PartitionNumber\r\n  }\r\n  $efiRoot = $efiPart.DriveLetter.ToString() + ':\\'\r\n  $grubCfg = Join-Path $efiRoot 'EFI\\ubuntu\\grub.cfg'\r\n  if (-not (Test-Path $grubCfg)) { $grubCfg = (Get-ChildItem (Join-Path $efiRoot 'EFI') -Recurse -Filter 'grub.cfg' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }\r\n  if (-not $grubCfg -or -not (Test-Path $grubCfg)) { Write-Output 'grub.cfg not found on EFI — skipping patch.'; return }\r\n  $content = [System.IO.File]::ReadAllText($grubCfg)\r\n  Write-Output \"ORIGINAL_GRUB_CFG>>>$content<<<\"\r\n  $match = [regex]::Match($content, 'search\\.fs_uuid\\s+(\\S+)')\r\n  if (-not $match.Success) { Write-Output 'Could not extract root UUID from grub.cfg — skipping patch.'; return }\r\n  $rootUuid = $match.Groups[1].Value\r\n  $pfxMatch = [regex]::Match($content, \"set prefix=\\(\\`$root\\)'([^']+)'\")\r\n  $pfx = if ($pfxMatch.Success) { $pfxMatch.Groups[1].Value } else { '/grub' }\r\n  $newCfg = \"search.fs_uuid $rootUuid root`nset prefix=(`$root)'$pfx'`ninsmod linux`ninsmod gzio`nlinux (`$root)/vmlinuz root=LABEL=cloudimg-rootfs ro quiet splash ds=nocloud`ninitrd (`$root)/initrd.img`nboot`nconfigfile `$prefix/grub.cfg`n\"\r\n  Copy-Item -LiteralPath $grubCfg -Destination ($grubCfg + '.orig') -Force\r\n  [System.IO.File]::WriteAllText($grubCfg, $newCfg, [System.Text.UTF8Encoding]::new($false))\r\n} finally {\r\n  Dismount-VHD -Path " + osVhdPsSingleQuoted + " -ErrorAction SilentlyContinue\r\n}\r\n";
 		}
 
 		private static string BuildSeedDiskScript (string udB64, string mdB64, string ncB64, string seedPathPsSingleQuoted)
 		{
-			return "$seed = " + seedPathPsSingleQuoted + "\r\nif (Test-Path -LiteralPath $seed) {\r\n  Dismount-VHD -Path $seed -ErrorAction SilentlyContinue\r\n  $seedFull = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $seed).Path)\r\n  foreach ($vm in @(Get-VM -ErrorAction SilentlyContinue)) {\r\n    $hds = @(Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $seedFull) })\r\n    foreach ($hd in $hds) {\r\n      try { $hd | Remove-VMHardDiskDrive -ErrorAction Stop }\r\n      catch { Stop-VM -Name $vm.Name -TurnOff -Force -ErrorAction SilentlyContinue; $hd | Remove-VMHardDiskDrive -ErrorAction SilentlyContinue }\r\n    }\r\n  }\r\n  Dismount-VHD -Path $seed -ErrorAction SilentlyContinue\r\n  for ($i = 0; $i -lt 10; $i++) {\r\n    if (-not (Test-Path -LiteralPath $seed)) { break }\r\n    try { Remove-Item -LiteralPath $seed -Force -ErrorAction Stop; break } catch { Start-Sleep -Milliseconds 400 }\r\n  }\r\n  if (Test-Path -LiteralPath $seed) { throw 'Cannot replace seed VHD. Remove the CIDATA disk from the VM in Hyper-V Manager, or delete the old VM, then retry.' }\r\n}\r\n" + $"New-VHD -Path $seed -SizeBytes {536870912} -Dynamic | Out-Null\r\n" + "$ud = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + udB64 + "'))\r\n$md = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + mdB64 + "'))\r\n$vhd = Mount-VHD -Path $seed -PassThru\r\n$disk = $vhd | Get-Disk\r\nInitialize-Disk -InputObject $disk -PartitionStyle MBR\r\n$part = New-Partition -DiskNumber $disk.Number -UseMaximumSize -AssignDriveLetter\r\nFormat-Volume -Partition $part -FileSystem FAT32 -NewFileSystemLabel CIDATA -Confirm:$false | Out-Null\r\n$p2 = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.DriveLetter -ne 0 } | Select-Object -First 1\r\n$root = $p2.DriveLetter.ToString() + ':\\'\r\n[System.IO.File]::WriteAllText((Join-Path $root 'user-data'), $ud, [System.Text.UTF8Encoding]::new($false))\r\n[System.IO.File]::WriteAllText((Join-Path $root 'meta-data'), $md, [System.Text.UTF8Encoding]::new($false))\r\n" + ((ncB64.Length > 0) ? ("$nc = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + ncB64 + "'))\r\n[System.IO.File]::WriteAllText((Join-Path $root 'network-config'), $nc, [System.Text.UTF8Encoding]::new($false))\r\n") : "") + "Dismount-VHD -Path $seed\r\n";
+			return BuildPowerShellVirtualDiskHelpers () + "$seed = " + seedPathPsSingleQuoted + "\r\n$seedDir = Split-Path -LiteralPath $seed\r\nRepair-VirtualDiskDirectoryForHyperV $seedDir\r\nif (Test-Path -LiteralPath $seed) {\r\n  Dismount-VHD -Path $seed -ErrorAction SilentlyContinue\r\n  $seedFull = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $seed).Path)\r\n  foreach ($vm in @(Get-VM -ErrorAction SilentlyContinue)) {\r\n    $hds = @(Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $seedFull) })\r\n    foreach ($hd in $hds) {\r\n      try { $hd | Remove-VMHardDiskDrive -ErrorAction Stop }\r\n      catch { Stop-VM -Name $vm.Name -TurnOff -Force -ErrorAction SilentlyContinue; $hd | Remove-VMHardDiskDrive -ErrorAction SilentlyContinue }\r\n    }\r\n  }\r\n  Dismount-VHD -Path $seed -ErrorAction SilentlyContinue\r\n  for ($i = 0; $i -lt 10; $i++) {\r\n    if (-not (Test-Path -LiteralPath $seed)) { break }\r\n    try { Remove-Item -LiteralPath $seed -Force -ErrorAction Stop; break } catch { Start-Sleep -Milliseconds 400 }\r\n  }\r\n  if (Test-Path -LiteralPath $seed) { throw 'Cannot replace seed VHD. Remove the CIDATA disk from the VM in Hyper-V Manager, or delete the old VM, then retry.' }\r\n}\r\n" + $"New-VHD -Path $seed -SizeBytes {536870912} -Dynamic | Out-Null\r\n" + "Repair-VirtualDiskFileForHyperV $seed\r\n$ud = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + udB64 + "'))\r\n$md = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + mdB64 + "'))\r\n$vhd = Mount-VHD -Path $seed -PassThru\r\n$disk = $vhd | Get-Disk\r\nInitialize-Disk -InputObject $disk -PartitionStyle MBR\r\n$part = New-Partition -DiskNumber $disk.Number -UseMaximumSize -AssignDriveLetter\r\nFormat-Volume -Partition $part -FileSystem FAT32 -NewFileSystemLabel CIDATA -Confirm:$false | Out-Null\r\n$p2 = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.DriveLetter -ne 0 } | Select-Object -First 1\r\n$root = $p2.DriveLetter.ToString() + ':\\'\r\n[System.IO.File]::WriteAllText((Join-Path $root 'user-data'), $ud, [System.Text.UTF8Encoding]::new($false))\r\n[System.IO.File]::WriteAllText((Join-Path $root 'meta-data'), $md, [System.Text.UTF8Encoding]::new($false))\r\n" + ((ncB64.Length > 0) ? ("$nc = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + ncB64 + "'))\r\n[System.IO.File]::WriteAllText((Join-Path $root 'network-config'), $nc, [System.Text.UTF8Encoding]::new($false))\r\n") : "") + "Dismount-VHD -Path $seed\r\n";
 		}
 	}
 

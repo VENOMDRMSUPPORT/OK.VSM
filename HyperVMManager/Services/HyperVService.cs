@@ -121,10 +121,12 @@ namespace HyperVMManager.Services;
 				}
 			} catch {
 			}
+			Dictionary<string, VmDiskInfo> diskInfoByName = QueryVmDiskInfoViaPowerShell ();
 			return new VmBulkDetails {
 				CpuByVm = dictionary,
 				MemoryBytesByVm = dictionary2,
 				DiskBytesByVm = dictionary3,
+				DiskInfoByVmName = diskInfoByName,
 				Host = snapshot
 			};
 		}
@@ -151,8 +153,83 @@ namespace HyperVMManager.Services;
 				vm.DiskGaugePercent = ((vm.DiskAllocationMeaningful && host.TotalFixedDiskBytes != 0) ? Math.Min (100.0, (double)value2 * 100.0 / (double)host.TotalFixedDiskBytes) : 0.0);
 				vm.DiskGaugeCaption = (vm.DiskAllocationMeaningful ? (FormatSize (value2) + " / " + FormatSize (host.TotalFixedDiskBytes)) : "No provisioned VHD total (< 1 MB)");
 				vm.ShowDiskGauge = vm.IsRunning && vm.DiskAllocationMeaningful;
+				if (details.DiskInfoByVmName.TryGetValue (vm.Name, out var diskInfo)) {
+					vm.OsVhdPath = diskInfo.OsVhdPath;
+					vm.SeedVhdPath = diskInfo.SeedVhdPath;
+					vm.OsVhdActualSize = diskInfo.OsVhdActualSize;
+					vm.SeedVhdActualSize = diskInfo.SeedVhdActualSize;
+				}
 				vm.DetailsLoaded = true;
 			}
+		}
+
+		public static Dictionary<string, VmDiskInfo> QueryVmDiskInfoViaPowerShell ()
+		{
+			Dictionary<string, VmDiskInfo> dictionary = new Dictionary<string, VmDiskInfo> (StringComparer.OrdinalIgnoreCase);
+			try {
+				string s = "$ErrorActionPreference = 'SilentlyContinue'\r\n" +
+					"function Format-Size([long]$bytes) {\r\n" +
+					"  if ($bytes -le 0) { return '' }\r\n" +
+					"  $units = @('B','KB','MB','GB','TB')\r\n" +
+					"  $n = [double]$bytes; $i = 0\r\n" +
+					"  while ($n -ge 1024 -and $i -lt $units.Length - 1) { $n = $n / 1024; $i++ }\r\n" +
+					"  return ('{0:N1} {1}' -f $n, $units[$i])\r\n" +
+					"}\r\n" +
+					"$bucket = [System.Collections.Generic.List[object]]::new()\r\n" +
+					"Get-VM -ErrorAction SilentlyContinue | ForEach-Object {\r\n" +
+					"  $vmName = [string]$_.Name\r\n" +
+					"  $paths = @(Get-VMHardDiskDrive -VMName $vmName -ErrorAction SilentlyContinue | Where-Object { $_.Path } | ForEach-Object { [string]$_.Path })\r\n" +
+					"  $seed = ($paths | Where-Object { $_ -match '(?i)(cidata|seed)' } | Select-Object -First 1)\r\n" +
+					"  $os = ($paths | Where-Object { $_ -and $_ -ne $seed } | Select-Object -First 1)\r\n" +
+					"  if (-not $os -and $paths.Count -gt 0) { $os = $paths[0] }\r\n" +
+					"  $osBytes = if ($os -and (Test-Path -LiteralPath $os)) { (Get-Item -LiteralPath $os).Length } else { 0 }\r\n" +
+					"  $seedBytes = if ($seed -and (Test-Path -LiteralPath $seed)) { (Get-Item -LiteralPath $seed).Length } else { 0 }\r\n" +
+					"  $bucket.Add([PSCustomObject]@{ Name = $vmName; Os = [string]$os; Seed = [string]$seed; OsSize = (Format-Size $osBytes); SeedSize = (Format-Size $seedBytes) })\r\n" +
+					"}\r\n" +
+					"$bucket | ConvertTo-Json -Compress -Depth 5\r\n";
+				string text = Convert.ToBase64String (Encoding.Unicode.GetBytes (s));
+				ProcessStartInfo startInfo = new ProcessStartInfo {
+					FileName = "powershell.exe",
+					Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + text,
+					UseShellExecute = false,
+					RedirectStandardOutput = true,
+					RedirectStandardError = true,
+					CreateNoWindow = true
+				};
+				using Process? process = Process.Start (startInfo);
+				if (process == null) {
+					return dictionary;
+				}
+				string text2 = process.StandardOutput.ReadToEnd ();
+				process.WaitForExit (30000);
+				if (process.ExitCode != 0 || string.IsNullOrWhiteSpace (text2)) {
+					return dictionary;
+				}
+				using JsonDocument jsonDocument = JsonDocument.Parse (text2.Trim ());
+				JsonElement rootElement = jsonDocument.RootElement;
+				void AddDiskInfo (JsonElement el)
+				{
+					string name = el.TryGetProperty ("Name", out var nameEl) ? (nameEl.GetString () ?? "") : "";
+					if (string.IsNullOrWhiteSpace (name)) {
+						return;
+					}
+					dictionary [name] = new VmDiskInfo {
+						OsVhdPath = el.TryGetProperty ("Os", out var osEl) ? (osEl.GetString () ?? "") : "",
+						SeedVhdPath = el.TryGetProperty ("Seed", out var seedEl) ? (seedEl.GetString () ?? "") : "",
+						OsVhdActualSize = el.TryGetProperty ("OsSize", out var osSizeEl) ? (osSizeEl.GetString () ?? "") : "",
+						SeedVhdActualSize = el.TryGetProperty ("SeedSize", out var seedSizeEl) ? (seedSizeEl.GetString () ?? "") : ""
+					};
+				}
+				if (rootElement.ValueKind == JsonValueKind.Array) {
+					foreach (JsonElement item in rootElement.EnumerateArray ()) {
+						AddDiskInfo (item);
+					}
+				} else if (rootElement.ValueKind == JsonValueKind.Object) {
+					AddDiskInfo (rootElement);
+				}
+			} catch {
+			}
+			return dictionary;
 		}
 
 		private static Dictionary<string, ulong> QueryMemoryStartupViaPowerShell ()
