@@ -316,12 +316,30 @@ namespace HyperVMManager.Services;
 
 		public static (bool ok, IReadOnlyList<string> names, string message) ListVirtualSwitchNames ()
 		{
-			string script = "$ErrorActionPreference = 'SilentlyContinue'\r\n@(Get-VMSwitch | Sort-Object @{ Expression = { if ($_.SwitchType -eq 'External') { 0 } elseif ($_.Name -eq 'Default Switch') { 1 } else { 2 } } }, Name | ForEach-Object { [string]$_.Name }) | ConvertTo-Json -Compress\r\n";
+			string script = "$ErrorActionPreference = 'SilentlyContinue'\r\n@(Get-VMSwitch | Where-Object { $_.SwitchType -eq 'External' } | Sort-Object Name | ForEach-Object { [string]$_.Name }) | ConvertTo-Json -Compress\r\n";
 			var (flag, text) = RunScript (script);
 			if (!flag) {
 				return (ok: false, names: Array.Empty<string> (), message: HumanizePowerShellOutput (text));
 			}
 			return (ok: true, names: ParseJsonStringArray (text), message: string.Empty);
+		}
+
+		public static (bool ok, bool isExternal, string switchType, string message) ValidateExternalSwitch (string switchName)
+		{
+			if (string.IsNullOrWhiteSpace (switchName)) {
+				return (ok: true, isExternal: false, switchType: "", message: string.Empty);
+			}
+			string value = "'" + EscapeSingleQuoted (switchName.Trim ()) + "'";
+			string script =
+				"$ErrorActionPreference = 'Stop'\r\n" +
+				"$sw = Get-VMSwitch -Name " + value + " -ErrorAction Stop\r\n" +
+				"[string]$sw.SwitchType\r\n";
+			var (flag, text) = RunScript (script);
+			if (!flag) {
+				return (ok: false, isExternal: false, switchType: "", message: HumanizePowerShellOutput (text));
+			}
+			string type = text.Trim ();
+			return (ok: true, isExternal: type.Equals ("External", StringComparison.OrdinalIgnoreCase), switchType: type, message: string.Empty);
 		}
 
 		private static IReadOnlyList<string> ParseJsonStringArray (string json)
@@ -377,6 +395,14 @@ namespace HyperVMManager.Services;
 
 		public static (bool ok, string message) CreateUbuntuCloudVm (CreateUbuntuCloudVmParameters p, IProgress<string>? progress = null)
 		{
+			var (switchOk, isExternal, switchType, switchErr) = ValidateExternalSwitch (p.SwitchName);
+			if (!switchOk) {
+				return (ok: false, message: string.IsNullOrWhiteSpace (switchErr) ? "Could not validate the selected Hyper-V switch." : switchErr);
+			}
+			if (!isExternal) {
+				string actualType = string.IsNullOrWhiteSpace (switchType) ? "Unknown" : switchType;
+				return (ok: false, message: "Ubuntu cloud VMs require an External Hyper-V switch for reliable networking. Selected switch type: " + actualType + ".\n\nCreate/select an External switch in Hyper-V Manager, then retry.");
+			}
 			string value = VmLiteral (p.VmName);
 			string value2 = VmLiteral (p.SwitchName);
 			string text = "'" + EscapeSingleQuoted (p.OsVhdFullPath) + "'";

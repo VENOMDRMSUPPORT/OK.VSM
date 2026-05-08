@@ -109,7 +109,7 @@ namespace HyperVMManager.Services;
 					L ("                - " + item);
 				}
 			}
-			L ("  - path: /etc/ssh/sshd_config.d/99-hypervm-ssh.conf");
+			L ("  - path: /etc/ssh/sshd_config.d/99-zz-hypervm-ssh.conf");
 			L ("    owner: root:root");
 			L ("    permissions: '0644'");
 			L ("    content: |");
@@ -124,14 +124,15 @@ namespace HyperVMManager.Services;
 				L ("  - rm -f /etc/netplan/50-cloud-init.yaml /etc/netplan/90-hotplug-azure.yaml");
 				L ("  - netplan apply || true");
 			}
-			L ("  - bash -c 'rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf /etc/ssh/sshd_config.d/60-cloudimg-settings.conf /etc/ssh/sshd_config.d/99-cloud-init.conf'");
+			L ("  - bash -c 'rm -f /etc/ssh/sshd_config.d/*cloud-init*.conf /etc/ssh/sshd_config.d/*cloudimg*.conf || true'");
 			L ("  - bash -c " + ShellSingleQuote ("printf '%s\\n' " + ShellSingleQuote (text2 + ":" + p.AdminPassword) + " " + ShellSingleQuote ("root:" + p.AdminPassword) + " | chpasswd"));
 			L ("  - bash -c " + ShellSingleQuote ("hash=$(openssl passwd -6 " + ShellSingleQuote (p.AdminPassword) + "); usermod --password \"$hash\" " + ShellSingleQuote (text2) + "; usermod --password \"$hash\" root; usermod -U " + ShellSingleQuote (text2) + " || true; passwd -u root || true"));
 			L ("  - systemctl daemon-reload || true");
 			L ("  - systemctl unmask ssh.service ssh.socket || true");
 			L ("  - systemctl enable ssh.service || true");
 			L ("  - systemctl enable ssh.socket || true");
-			L ("  - systemctl reload ssh || systemctl restart ssh || systemctl restart sshd || true");
+			L ("  - sshd -t || true");
+			L ("  - systemctl restart ssh || systemctl restart sshd || service ssh restart || true");
 			return sb.ToString ();
 			void L (string s)
 			{

@@ -1,6 +1,6 @@
-﻿{
-    "version":  "1.1.6",
-    "downloadUrl":  "https://github.com/VENOMDRMSUPPORT/OK.VSM/releases/download/v1.1.6/HyperVMManager-Setup-1.1.6.exe",
-    "sha256":  "62FA463BE7B5F6A6D9F1227F0199C569C25A84E0960D6E18483B7B6953CBD07C",
-    "releaseNotes":  "Release v1.1.6"
+{
+  "version": "1.1.7",
+  "downloadUrl": "https://github.com/VENOMDRMSUPPORT/OK.VSM/releases/download/v1.1.7/HyperVMManager-Setup-1.1.7.exe",
+  "sha256": "657D00CD41F51CFDC5361CCDF41771E4542F691E7B41957BC360BFC400C315C0",
+  "releaseNotes": "Release v1.1.7"
 }

@@ -314,6 +314,21 @@ namespace HyperVMManager.Dialogs;
 				return;
 			}
 
+			if (string.IsNullOrWhiteSpace (_resolvedSwitchName)) {
+				MessageBox.Show ("No External Hyper-V switch was found.\n\nCreate an External switch in Hyper-V Manager (Virtual Switch Manager) and retry.", "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+				return;
+			}
+
+			var (switchOk, isExternal, switchType, switchError) = VmControlService.ValidateExternalSwitch (_resolvedSwitchName);
+			if (!switchOk) {
+				MessageBox.Show (string.IsNullOrWhiteSpace (switchError) ? "Could not validate the selected Hyper-V switch." : switchError, "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+				return;
+			}
+			if (!isExternal) {
+				MessageBox.Show ("Ubuntu cloud VMs require an External Hyper-V switch for reliable networking.\n\nSelected switch type: " + (string.IsNullOrWhiteSpace (switchType) ? "Unknown" : switchType) + ".", "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+				return;
+			}
+
 			// Admin user: optional, default "venom"
 			string adminUser = TxtAdminUser.Text.Trim ();
 			if (string.IsNullOrWhiteSpace (adminUser)) {
@@ -326,7 +341,7 @@ namespace HyperVMManager.Dialogs;
 				return;
 			}
 
-			bool useDhcpNetwork = IsDhcpOnlySwitch (_resolvedSwitchName);
+			bool useDhcpNetwork = false;
 			string guestIpv4 = "";
 			List<string> dnsServers = new List<string> ();
 			string notes = "Guest IPv4: DHCP (" + _resolvedSwitchName + ")\r\n" + UbuntuInstallProfile.Ubuntu2404Lts.NotesSuffixCloud ();
@@ -379,12 +394,6 @@ namespace HyperVMManager.Dialogs;
 				DnsServers = dnsServers
 			};
 			base.DialogResult = true;
-		}
-
-		private static bool IsDhcpOnlySwitch (string switchName)
-		{
-			return switchName.Equals ("Default Switch", StringComparison.OrdinalIgnoreCase)
-				|| switchName.Contains ("WSL", StringComparison.OrdinalIgnoreCase);
 		}
 
 		private void CancelButton_Click (object sender, RoutedEventArgs e)

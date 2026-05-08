@@ -815,27 +815,41 @@ public VirtualMachine? SelectedVm
 			VmInspectorService.VmExtendedInfo info = await Task.Run(() => VmInspectorService.QueryExtendedInfo(name));
 			await Application.Current.Dispatcher.InvokeAsync(delegate
 			{
-				if (!(SelectedVm?.Name != name))
+				VirtualMachine? selectedVm = SelectedVm;
+				if (selectedVm == null || selectedVm.Name != name)
 				{
-					string? probeIp = (string.IsNullOrWhiteSpace(info.Ipv4) ? null : info.Ipv4.Trim());
-					if (string.IsNullOrWhiteSpace(probeIp) && VmGuestIpCache.TryGet(name, out var cachedIp) && _poolSettings.ContainsAddress(cachedIp))
+					return;
+				}
+				string probeIp = FormatGuestIpv4Cell(info.Ipv4);
+				string selectedIp = FormatGuestIpv4Cell(selectedVm.GuestIpv4);
+				if (probeIp == "—")
+				{
+					if (selectedIp != "—")
+					{
+						DrawerIpv4 = selectedIp;
+					}
+					else if (VmGuestIpCache.TryGet(name, out var cachedIp) && _poolSettings.ContainsAddress(cachedIp))
 					{
 						DrawerIpv4 = cachedIp;
 					}
 					else
 					{
-						DrawerIpv4 = string.IsNullOrWhiteSpace(probeIp) ? "—" : probeIp;
+						DrawerIpv4 = "—";
 					}
-					string text = VmInspectorService.SanitizeMac(info.Mac);
-					DrawerMac = ((text.Length > 0) ? text : "—");
-					DrawerOsHint = (string.IsNullOrWhiteSpace(info.OsHint) ? "—" : info.OsHint);
-					DrawerInstallHint = (string.IsNullOrWhiteSpace(info.InstallHint) ? "" : info.InstallHint.Trim());
-					SelectedVm.OsVhdPath = info.OsVhdPath;
-					SelectedVm.SeedVhdPath = info.SeedVhdPath;
-					SelectedVm.OsVhdActualSize = info.OsVhdActualSize;
-					SelectedVm.SeedVhdActualSize = info.SeedVhdActualSize;
-					ApplyOsIconGlyph(info.OsHint ?? "", this);
 				}
+				else
+				{
+					DrawerIpv4 = probeIp;
+				}
+				string text = VmInspectorService.SanitizeMac(info.Mac);
+				DrawerMac = ((text.Length > 0) ? text : "—");
+				DrawerOsHint = (string.IsNullOrWhiteSpace(info.OsHint) ? "—" : info.OsHint);
+				DrawerInstallHint = (string.IsNullOrWhiteSpace(info.InstallHint) ? "" : info.InstallHint.Trim());
+				selectedVm.OsVhdPath = info.OsVhdPath;
+				selectedVm.SeedVhdPath = info.SeedVhdPath;
+				selectedVm.OsVhdActualSize = info.OsVhdActualSize;
+				selectedVm.SeedVhdActualSize = info.SeedVhdActualSize;
+				ApplyOsIconGlyph(info.OsHint ?? "", this);
 			});
 		}
 		finally

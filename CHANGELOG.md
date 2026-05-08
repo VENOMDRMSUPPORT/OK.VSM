@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [1.1.7] - 2026-05-08
+### Fixed
+- Enforce External Hyper-V switch for Ubuntu cloud VM creation — creation is blocked with a clear message when no External switch is available, preventing wrong IP assignment and missing internet access.
+- Filter virtual switch list to External-only so the dialog no longer auto-selects Internal/Private switches that cannot provide correct static networking.
+- Add server-side switch type validation inside `CreateUbuntuCloudVm` as a defense-in-depth guard even if the dialog state is stale.
+- Rename SSH override config to `99-zz-hypervm-ssh.conf` to guarantee it loads last and overrides any conflicting distro snippets.
+- Use wildcard cleanup (`*cloud-init*.conf`, `*cloudimg*.conf`) to remove all known restrictive SSH config fragments that disable password authentication.
+- Add `sshd -t` config test and use `systemctl restart` (not reload) for SSH so the new auth policy is always applied on first boot.
+- Fix drawer IP display race: `LoadDrawerDetailsAsync` now prefers the canonical `GuestIpv4` from the selected VM when the extended network probe returns empty, preventing stale overwrite.
+
 ## [1.1.6] - 2026-05-08
 ### Fixed
 - Keep NoCloud seed boot behavior stable while fixing password provisioning.
