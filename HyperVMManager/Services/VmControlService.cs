@@ -216,14 +216,40 @@ namespace HyperVMManager.Services;
 			string diskArray = "@(" + string.Join (",", confirmedDisks.Select (p => "'" + EscapeSingleQuoted (p) + "'")) + ")";
 			string dirLiteral = "'" + EscapeSingleQuoted (targetDirectory) + "'";
 			string innerScriptBody =
+				"function Set-NormalAttributesRecursively([string]$path) {\r\n" +
+				"  if (-not (Test-Path -LiteralPath $path)) { return }\r\n" +
+				"  Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {\r\n" +
+				"    try { $_.Attributes = [System.IO.FileAttributes]::Normal } catch { }\r\n" +
+				"  }\r\n" +
+				"  try { (Get-Item -LiteralPath $path -Force).Attributes = [System.IO.FileAttributes]::Directory } catch { }\r\n" +
+				"}\r\n" +
+				"function Remove-DirectoryWithRetries([string]$path) {\r\n" +
+				"  if (-not (Test-Path -LiteralPath $path)) { return }\r\n" +
+				"  Set-NormalAttributesRecursively $path\r\n" +
+				"  for ($i = 0; $i -lt 8; $i++) {\r\n" +
+				"    try {\r\n" +
+				"      Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop\r\n" +
+				"      if (-not (Test-Path -LiteralPath $path)) { return }\r\n" +
+				"    } catch {\r\n" +
+				"      Start-Sleep -Milliseconds (300 + ($i * 200))\r\n" +
+				"      Set-NormalAttributesRecursively $path\r\n" +
+				"    }\r\n" +
+				"  }\r\n" +
+				"  if (Test-Path -LiteralPath $path) {\r\n" +
+				"    $remaining = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue)\r\n" +
+				"    if ($remaining.Count -eq 0) {\r\n" +
+				"      Remove-Item -LiteralPath $path -Force -ErrorAction Stop\r\n" +
+				"    }\r\n" +
+				"  }\r\n" +
+				"}\r\n" +
 				"$disks = " + diskArray + "\r\n" +
 				"foreach ($disk in $disks) {\r\n" +
 				"  if ($disk -and (Test-Path -LiteralPath $disk)) { Dismount-VHD -Path $disk -ErrorAction SilentlyContinue }\r\n" +
 				"}\r\n" +
 				"Start-Sleep -Milliseconds 500\r\n" +
 				(targetDirectory.Length > 0
-					? "$dir = " + dirLiteral + "\r\nif (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop }\r\n"
-					: "foreach ($disk in $disks) { if ($disk -and (Test-Path -LiteralPath $disk)) { Remove-Item -LiteralPath $disk -Force -ErrorAction Stop } }\r\n");
+					? "$dir = " + dirLiteral + "\r\nRemove-DirectoryWithRetries $dir\r\n"
+					: "foreach ($disk in $disks) {\r\n  if ($disk -and (Test-Path -LiteralPath $disk)) {\r\n    try { (Get-Item -LiteralPath $disk -Force).Attributes = [System.IO.FileAttributes]::Normal } catch { }\r\n    Remove-Item -LiteralPath $disk -Force -ErrorAction Stop\r\n  }\r\n}\r\n");
 			return RunScriptTryCatch (innerScriptBody);
 		}
 
@@ -452,7 +478,7 @@ namespace HyperVMManager.Services;
 			string ncB = ((text4 != null) ? Convert.ToBase64String (Encoding.UTF8.GetBytes (text4)) : "");
 			(string, string)[] array = new(string, string)[6] {
 				("Preparing directories…", BuildPowerShellVirtualDiskHelpers () + $"$os = {text}\r\n$dir = Split-Path -LiteralPath $os\r\nif ($dir -and -not (Test-Path -LiteralPath $dir)) {{ New-Item -ItemType Directory -Path $dir -Force | Out-Null }}\r\nRepair-VirtualDiskDirectoryForHyperV $dir\r\n$sd = {text2}\r\n$sdir = Split-Path -LiteralPath $sd\r\nif ($sdir -and -not (Test-Path -LiteralPath $sdir)) {{ New-Item -ItemType Directory -Path $sdir -Force | Out-Null }}\r\nRepair-VirtualDiskDirectoryForHyperV $sdir\r\n"),
-				("Creating differencing OS disk…", $"if (-not (Test-Path -LiteralPath {text3})) {{ throw 'Shared Ubuntu base template was not found.' }}\r\nif (Test-Path -LiteralPath {text}) {{ throw 'OS disk already exists at the VM path.' }}\r\n$vhdParentAttrs = [System.IO.File]::GetAttributes({text3})\r\nif (($vhdParentAttrs -band [System.IO.FileAttributes]::ReadOnly) -eq 0) {{ [System.IO.File]::SetAttributes({text3}, ($vhdParentAttrs -bor [System.IO.FileAttributes]::ReadOnly)) }}\r\nNew-VHD -Path {text} -ParentPath {text3} -Differencing | Out-Null\r\nRepair-VirtualDiskFileForHyperV {text}\r\n"),
+				("Creating differencing OS disk…", BuildPowerShellVirtualDiskHelpers () + $"if (-not (Test-Path -LiteralPath {text3})) {{ throw 'Shared Ubuntu base template was not found.' }}\r\nif (Test-Path -LiteralPath {text}) {{ throw 'OS disk already exists at the VM path.' }}\r\n$vhdParentAttrs = [System.IO.File]::GetAttributes({text3})\r\nif (($vhdParentAttrs -band [System.IO.FileAttributes]::ReadOnly) -eq 0) {{ [System.IO.File]::SetAttributes({text3}, ($vhdParentAttrs -bor [System.IO.FileAttributes]::ReadOnly)) }}\r\nNew-VHD -Path {text} -ParentPath {text3} -Differencing | Out-Null\r\nRepair-VirtualDiskFileForHyperV {text}\r\n"),
 				("Building cloud-init seed disk…", BuildSeedDiskScript (udB, mdB, ncB, text2)),
 				("Creating virtual machine…", $"New-VM -Name {value} -MemoryStartupBytes {memoryStartupBytes} -Generation 2 -VHDPath {text} -SwitchName {value2}\r\n"),
 				("Configuring shared resources and disks...", $"Set-VMMemory -VMName {value} -DynamicMemoryEnabled $true -MinimumBytes {memoryMinimumBytes} -StartupBytes {memoryStartupBytes} -MaximumBytes {memoryMaximumBytes}\r\nSet-VMProcessor -VMName {value} -Count {processorCount}\r\nAdd-VMHardDiskDrive -VMName {value} -Path {text2}\r\n$expectedOs = [System.IO.Path]::GetFullPath({text})\r\n$osHdd = @(Get-VMHardDiskDrive -VMName {value} | Where-Object {{ $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $expectedOs) }})[0]\r\nif (-not $osHdd) {{ throw 'UEFI: could not find the OS disk for FirstBootDevice (path mismatch after attaching seed disk).' }}\r\nSet-VMFirmware -VMName {value} -SecureBootTemplate MicrosoftUEFICertificateAuthority\r\nSet-VMFirmware -VMName {value} -FirstBootDevice $osHdd\r\nGet-VMDvdDrive -VMName {value} -ErrorAction SilentlyContinue | Remove-VMDvdDrive -ErrorAction SilentlyContinue\r\nif (@(Get-VMDvdDrive -VMName {value} -ErrorAction SilentlyContinue).Count -gt 0) {{ throw 'Virtual DVD drive could not be removed; Linux may hang on /dev/sr0.' }}\r\n"),

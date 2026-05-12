@@ -15,6 +15,12 @@ public sealed class AppUserSettings
 
     public bool HasSeenFirstRunTips { get; set; }
 
+    /// <summary>
+    /// المسار الذي اختاره المستخدم آخر مرة كمجلد أساسي لـ VM disks (Auto أو Custom).
+    /// يُستخدم لتذكر التفضيل بين الجلسات.
+    /// </summary>
+    public string? LastUsedVmPath { get; set; }
+
     public static AppUserSettings Load()
     {
         try

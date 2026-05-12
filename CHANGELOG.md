@@ -17,6 +17,20 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Stop Ubuntu cloud VM OS disks from consuming tens of gigabytes on the host immediately after creation when the guest has written only a small amount of data.
 - Show the shared parent template path and size in the VM details drawer so disk layout is visible from the UI.
 
+## [1.2.0] - 2026-05-13
+### Added
+- Ubuntu 22.04 LTS (Jammy Jellyfish) cloud image support in the VM creation dialog.
+- `Auto` VM storage location now automatically selects the best available disk (excludes system drive and USB drives, prefers larger fixed/network drives).
+- `LastUsedVmPath` persistence: the app remembers the user's chosen VM storage folder between sessions.
+
+### Changed
+- `Auto` VM path logic no longer tied to the application's own directory (`AppContext.BaseDirectory`). It now intelligently selects the most suitable storage drive.
+- Cloud image cache hint (`TxtCloudFolderHint`) is now correctly derived from the user's selected or auto-detected VM path, not the app's install path.
+
+### Fixed
+- Cloud image cache hint was not updating when switching to "Custom folder" mode — now correctly reflects the chosen drive.
+- `CreateVmDialog` — Fixed unescaped newline characters (`\r\n` → `Environment.NewLine`) causing `CS1010` compilation errors.
+
 ## [1.1.10] - 2026-05-12
 ### Fixed
 - Close VENOM VM-WARE before launching the downloaded updater so Setup no longer needs to prompt about the app still using files during in-app update installation.

@@ -30,13 +30,14 @@ namespace HyperVMManager.Dialogs;
 			Title = AppBrand.DisplayName + " - Create Ubuntu VM";
 			TxtSuggestedIp.Text = ((string.IsNullOrWhiteSpace (suggestedNextIpv4) || suggestedNextIpv4 == "\u2014") ? "\u2014 (refresh list)" : suggestedNextIpv4);
 			TxtPoolRange.Text = (string.IsNullOrWhiteSpace (poolRangeDisplay) ? "Configure the pool under Network settings." : ("Pool: " + poolRangeDisplay));
-			TxtCloudFolderHint.Text = "Cache: " + CloudImageCacheService.CacheDirectory;
 			TxtVmName.TextChanged += (s, e) => {
 				UpdateVhdPathHint (TxtVmName.Text.Trim ());
 				UpdateHostname (TxtVmName.Text.Trim ());
 			};
+			TxtCustomDiskBaseFolder.TextChanged += (s, e) => UpdateCloudCacheHint ();
 			UpdateVhdPathHint (null);
 			UpdateHostname (null);
+			UpdateCloudCacheHint ();
 		}
 
 		private void Window_Loaded (object sender, RoutedEventArgs e)
@@ -66,7 +67,8 @@ namespace HyperVMManager.Dialogs;
 
 			CmbCloud.Items.Clear ();
 			foreach (CloudImageCatalogItem item in CloudImageCatalog.List ()) {
-				string suffix = CloudImageCacheService.IsVerifiedArchiveCached (item) ? " (ready in cache)" : " (download required)";
+				string probeDiskPath = BuildProbeOsVhdPathForSelectedLocation ();
+				string suffix = CloudImageCacheService.IsVerifiedArchiveCached (item, probeDiskPath) ? " (ready in cache)" : " (download required)";
 				CmbCloud.Items.Add (new ComboBoxItem {
 					Content = item.DisplayName + suffix,
 					ToolTip = item.ArchiveUri.ToString (),
@@ -122,18 +124,100 @@ namespace HyperVMManager.Dialogs;
 				MessageBoxImage.Information);
 		}
 
-		private static string ResolveVhdxBaseDirectory ()
-		{
-			string baseDir = AppContext.BaseDirectory;
-			return System.IO.Path.GetFullPath (System.IO.Path.Combine (baseDir, "vhdx"));
+private static string ResolveVhdxBaseDirectory ()
+	{
+		// 1. استخدم آخر مسار استخدمه المستخدم (محفوظ في الإعدادات)
+		var settings = AppUserSettings.Load ();
+		if (!string.IsNullOrWhiteSpace (settings.LastUsedVmPath) && Directory.Exists (settings.LastUsedVmPath))
+			return settings.LastUsedVmPath;
+
+		// 2. ابحث عن أول درايف فيزيائي مناسب (ليس System Drive وليس USB)
+		string? candidate = DiscoverFirstSuitableDrive ();
+		if (candidate != null)
+			return Path.Combine (candidate, "HyperVMManager", "vhdx");
+
+		// 3. fallback: مجلد التشغيل
+		string baseDir = AppContext.BaseDirectory;
+		return Path.GetFullPath (Path.Combine (baseDir, "vhdx"));
+	}
+
+	/// <summary>
+	/// يكتشف أول درايف فيزيائي مناسب ليكون مسار الـ VM الافتراضي.
+	/// يتجنب System Drive (C:) ويتجنب الدرايفات الصغيرة أو USB.
+	/// </summary>
+	private static string? DiscoverFirstSuitableDrive ()
+	{
+		try {
+			string systemRoot = Path.GetPathRoot (Environment.SystemDirectory) ?? "";
+
+			foreach (DriveInfo drive in DriveInfo.GetDrives ()) {
+				// تجاهل الدرايفات غير الجاهزة (CD-ROM، إلخ)
+				if (drive.DriveType != DriveType.Fixed && drive.DriveType != DriveType.Network)
+					continue;
+
+				// تجاهل درايف النظام (عادة C:)
+				if (drive.RootDirectory.FullName.Equals (systemRoot, StringComparison.OrdinalIgnoreCase))
+					continue;
+
+				// تجاهل الدرايفات الصغيرة جداً (أقل من 20 GB) أو ممتلئة جداً
+				if (drive.TotalSize < 20L * 1024 * 1024 * 1024)
+					continue;
+
+				// تأكد إن الدرايف جاهز للقراءة والكتابة
+				if (drive.IsReady)
+					return drive.RootDirectory.FullName.TrimEnd ('\\');
+			}
+		} catch {
+			// تجاهل أي أخطاء في الاكتشاف
 		}
 
-		private string ResolveSelectedVhdxBaseDirectory ()
+		return null;
+	}
+
+	/// <summary>
+	/// يحفظ المسار المستخدم في الإعدادات حتى الجلسة القادمة.
+	/// </summary>
+	private static void SaveLastUsedVmPath (string path)
+	{
+		try {
+			var settings = AppUserSettings.Load ();
+			settings.LastUsedVmPath = path;
+			settings.Save ();
+		} catch {
+			// تجاهل أخطاء الحفظ — ليس مهماً جداً
+		}
+	}
+
+private string ResolveSelectedVhdxBaseDirectory ()
+	{
+		if (RdoDiskCustom.IsChecked == true) {
+			string customPath = TxtCustomDiskBaseFolder.Text.Trim ();
+			if (!string.IsNullOrWhiteSpace (customPath))
+				SaveLastUsedVmPath (customPath);
+			return customPath;
+		}
+
+		// Auto mode: استخدم المنطق الذكي الجديد
+		string autoPath = ResolveVhdxBaseDirectory ();
+		// لا نحفظ هنا — SaveLastUsedVmPath يتُستدعى من CreateButton_Click عند النجاح
+		return autoPath;
+	}
+
+		private string BuildProbeOsVhdPathForSelectedLocation ()
 		{
-			if (RdoDiskCustom.IsChecked == true) {
-				return TxtCustomDiskBaseFolder.Text.Trim ();
+			string vmName = TxtVmName.Text.Trim ();
+			string safeName = SanitizeForPath (string.IsNullOrWhiteSpace (vmName) ? "sample-vm" : vmName);
+			string baseDir = ResolveSelectedVhdxBaseDirectory ();
+			if (string.IsNullOrWhiteSpace (baseDir)) {
+				return System.IO.Path.Combine (CloudImageCacheService.CacheDirectory, safeName + ".vhdx");
 			}
-			return ResolveVhdxBaseDirectory ();
+			return System.IO.Path.Combine (baseDir, safeName, safeName + ".vhdx");
+		}
+
+		private void UpdateCloudCacheHint ()
+		{
+			string probeDiskPath = BuildProbeOsVhdPathForSelectedLocation ();
+			TxtCloudFolderHint.Text = "Cloud image cache: " + CloudImageCacheService.GetCacheDirectoryForVmDisk (probeDiskPath);
 		}
 
 		private void UpdateVhdPathHint (string? vmName)
@@ -190,6 +274,7 @@ namespace HyperVMManager.Dialogs;
 			}
 			CustomDiskLocationPanel.Visibility = (RdoDiskCustom.IsChecked == true) ? Visibility.Visible : Visibility.Collapsed;
 			UpdateVhdPathHint (TxtVmName.Text.Trim ());
+			UpdateCloudCacheHint ();
 		}
 
 		private void BrowseDiskFolder_Click (object sender, RoutedEventArgs e)
@@ -201,6 +286,7 @@ namespace HyperVMManager.Dialogs;
 			if (dialog.ShowDialog (this) == true) {
 				TxtCustomDiskBaseFolder.Text = dialog.FolderName;
 				UpdateVhdPathHint (TxtVmName.Text.Trim ());
+				UpdateCloudCacheHint ();
 			}
 		}
 
@@ -335,113 +421,122 @@ namespace HyperVMManager.Dialogs;
 				return;
 			}
 
-			CloudImageCatalogItem? cloudImage = null;
-			if (CmbCloud.SelectedItem is ComboBoxItem { Tag: CloudImageCatalogItem tag }) {
-				cloudImage = tag;
-			}
-			if (cloudImage == null) {
-				MessageBox.Show ("Select an Ubuntu cloud image from the list.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+CloudImageCatalogItem? cloudImage = null;
+		if (CmbCloud.SelectedItem is ComboBoxItem { Tag: CloudImageCatalogItem tag }) {
+			cloudImage = tag;
+		}
+		if (cloudImage == null) {
+			MessageBox.Show ("Select an Ubuntu cloud image from the list.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+
+		// تحديد إصدار Ubuntu بناءً على الصورة المختارة
+		UbuntuInstallProfile selectedProfile = cloudImage.Id == CloudImageCatalog.Ubuntu2204AzureId
+			? UbuntuInstallProfile.Ubuntu2204Lts
+			: UbuntuInstallProfile.Ubuntu2404Lts;
+
+		if (!int.TryParse (TxtMemGb.Text.Trim (), out var memGb) || memGb < 1 || memGb > 8) {
+			MessageBox.Show ("Max memory must be between 1 and 8 GB.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+
+		if (!int.TryParse (TxtCpu.Text.Trim (), out var cpuCount) || cpuCount < 1 || cpuCount > 8) {
+			MessageBox.Show ("vCPU must be between 1 and 8.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+
+		if (!int.TryParse (TxtDiskGb.Text.Trim (), out var diskGb) || diskGb < 8 || diskGb > 256) {
+			MessageBox.Show ("Disk size must be between 8 and 256 GB.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+		if (diskGb > 80 && MessageBox.Show ("This creates a dynamic virtual disk, but it can still grow physically as the guest writes data.\n\nContinue with " + diskGb + " GB?", "Disk size", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) {
+			return;
+		}
+
+		if (string.IsNullOrWhiteSpace (_resolvedSwitchName)) {
+			MessageBox.Show ("No virtual switch found. Create an External Switch in Hyper-V Manager first.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+
+		var (switchOk, isExternal, switchType, switchError) = VmControlService.ValidateExternalSwitch (_resolvedSwitchName);
+		if (!switchOk) {
+			MessageBox.Show (string.IsNullOrWhiteSpace (switchError) ? "Could not validate the selected Hyper-V switch." : switchError, "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+		if (!isExternal) {
+			MessageBox.Show ("Ubuntu cloud VMs require an External Hyper-V switch for reliable networking.\n\nSelected switch type: " + (string.IsNullOrWhiteSpace (switchType) ? "Unknown" : switchType) + ".", "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+
+		// Admin user: optional, default "venom"
+		string adminUser = TxtAdminUser.Text.Trim ();
+		if (string.IsNullOrWhiteSpace (adminUser)) {
+			adminUser = "venom";
+		}
+
+		string adminPass = GetAdminPassword ();
+		if (adminPass.Length == 0) {
+			MessageBox.Show ("Enter an admin password (used for cloud-init, stored only on the seed disk).", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+
+		bool useDhcpNetwork = false;
+		string guestIpv4 = "";
+		List<string> dnsServers = new List<string> ();
+		string notes = "Guest IPv4: DHCP (" + _resolvedSwitchName + ")" + Environment.NewLine + selectedProfile.NotesSuffixCloud ();
+		if (!useDhcpNetwork) {
+			if (!_poolSettings.HasValidStaticNetwork ()) {
+				MessageBox.Show ("Configure a valid default gateway and prefix (1\u201332) under Network settings (IPv4 pool) before creating a VM.", "Network settings", MessageBoxButton.OK, MessageBoxImage.Exclamation);
 				return;
 			}
 
-			if (!int.TryParse (TxtMemGb.Text.Trim (), out var memGb) || memGb < 1 || memGb > 8) {
-				MessageBox.Show ("Max memory must be between 1 and 8 GB.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			guestIpv4 = TxtSuggestedIp.Text.Trim ();
+			if (guestIpv4.Length == 0 || guestIpv4 == "\u2014 (refresh list)") {
+				MessageBox.Show ("Enter the guest IPv4 from the pool (use Refresh if the suggested address is missing).", "Guest IPv4", MessageBoxButton.OK, MessageBoxImage.Exclamation);
 				return;
 			}
 
-			if (!int.TryParse (TxtCpu.Text.Trim (), out var cpuCount) || cpuCount < 1 || cpuCount > 8) {
-				MessageBox.Show ("vCPU must be between 1 and 8.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			if (!Ipv4PoolSettings.TryParseIpv4 (guestIpv4, out var _)) {
+				MessageBox.Show ("Enter a valid guest IPv4 address (e.g. 192.168.1.51).", "Guest IPv4", MessageBoxButton.OK, MessageBoxImage.Exclamation);
 				return;
 			}
 
-			if (!int.TryParse (TxtDiskGb.Text.Trim (), out var diskGb) || diskGb < 8 || diskGb > 256) {
-				MessageBox.Show ("Disk size must be between 8 and 256 GB.", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-				return;
-			}
-			if (diskGb > 80 && MessageBox.Show ("This creates a dynamic virtual disk, but it can still grow physically as the guest writes data.\n\nContinue with " + diskGb + " GB?", "Disk size", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) {
+			if (!_poolSettings.ContainsAddress (guestIpv4)) {
+				MessageBox.Show (string.Format ("Guest IPv4 must be within the pool ({0} \u2013 {1}).", _poolSettings.Ipv4RangeStart, _poolSettings.Ipv4RangeEnd), "Guest IPv4", MessageBoxButton.OK, MessageBoxImage.Exclamation);
 				return;
 			}
 
-			if (string.IsNullOrWhiteSpace (_resolvedSwitchName)) {
-				MessageBox.Show ("No External Hyper-V switch was found.\n\nCreate an External switch in Hyper-V Manager (Virtual Switch Manager) and retry.", "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-				return;
-			}
+			dnsServers = _poolSettings.EnumerateDnsServers ().ToList ();
+			notes = "Static guest IPv4 (cloud-init): " + guestIpv4 + Environment.NewLine + selectedProfile.NotesSuffixCloud ();
+		}
 
-			var (switchOk, isExternal, switchType, switchError) = VmControlService.ValidateExternalSwitch (_resolvedSwitchName);
-			if (!switchOk) {
-				MessageBox.Show (string.IsNullOrWhiteSpace (switchError) ? "Could not validate the selected Hyper-V switch." : switchError, "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-				return;
-			}
-			if (!isExternal) {
-				MessageBox.Show ("Ubuntu cloud VMs require an External Hyper-V switch for reliable networking.\n\nSelected switch type: " + (string.IsNullOrWhiteSpace (switchType) ? "Unknown" : switchType) + ".", "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-				return;
-			}
+		Result = new CreateUbuntuCloudVmParameters {
+			VmName = vmName,
+			SwitchName = _resolvedSwitchName,
+			CloudImageId = cloudImage.Id,
+			OsVhdFullPath = System.IO.Path.GetFullPath (osVhdPath),
+			SeedVhdFullPath = System.IO.Path.GetFullPath (seedVhdPath),
+			VmDirectory = System.IO.Path.GetFullPath (vmDir),
+			OsDiskSizeBytes = (ulong)((long)diskGb * 1024L * 1024 * 1024),
+			MemoryStartupBytes = 1L * 1024L * 1024 * 1024,
+			MemoryMinimumBytes = 1L * 1024L * 1024 * 1024,
+			MemoryMaximumBytes = (long)memGb * 1024L * 1024 * 1024,
+			ProcessorCount = cpuCount,
+			AdminUsername = adminUser,
+			AdminPassword = adminPass,
+			Hostname = hostname,
+			Profile = selectedProfile,
+			Notes = notes,
+			StaticGuestIpv4 = guestIpv4,
+			DefaultGateway = _poolSettings.DefaultGateway.Trim (),
+			PrefixLength = _poolSettings.PrefixLength,
+			DnsServers = dnsServers
+		};
 
-			// Admin user: optional, default "venom"
-			string adminUser = TxtAdminUser.Text.Trim ();
-			if (string.IsNullOrWhiteSpace (adminUser)) {
-				adminUser = "venom";
-			}
+		// حفظ مسار الـ VM المختار للإستخدام القادم
+		SaveLastUsedVmPath (ResolveSelectedVhdxBaseDirectory ());
 
-			string adminPass = GetAdminPassword ();
-			if (adminPass.Length == 0) {
-				MessageBox.Show ("Enter an admin password (used for cloud-init, stored only on the seed disk).", "Create VM", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-				return;
-			}
-
-			bool useDhcpNetwork = false;
-			string guestIpv4 = "";
-			List<string> dnsServers = new List<string> ();
-			string notes = "Guest IPv4: DHCP (" + _resolvedSwitchName + ")\r\n" + UbuntuInstallProfile.Ubuntu2404Lts.NotesSuffixCloud ();
-			if (!useDhcpNetwork) {
-				if (!_poolSettings.HasValidStaticNetwork ()) {
-					MessageBox.Show ("Configure a valid default gateway and prefix (1\u201332) under Network settings (IPv4 pool) before creating a VM.", "Network settings", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-					return;
-				}
-
-				guestIpv4 = TxtSuggestedIp.Text.Trim ();
-				if (guestIpv4.Length == 0 || guestIpv4 == "\u2014 (refresh list)") {
-					MessageBox.Show ("Enter the guest IPv4 from the pool (use Refresh if the suggested address is missing).", "Guest IPv4", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-					return;
-				}
-
-				if (!Ipv4PoolSettings.TryParseIpv4 (guestIpv4, out var _)) {
-					MessageBox.Show ("Enter a valid guest IPv4 address (e.g. 192.168.1.51).", "Guest IPv4", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-					return;
-				}
-
-				if (!_poolSettings.ContainsAddress (guestIpv4)) {
-					MessageBox.Show (string.Format ("Guest IPv4 must be within the pool ({0} \u2013 {1}).", _poolSettings.Ipv4RangeStart, _poolSettings.Ipv4RangeEnd), "Guest IPv4", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-					return;
-				}
-
-				dnsServers = _poolSettings.EnumerateDnsServers ().ToList ();
-				notes = "Static guest IPv4 (cloud-init): " + guestIpv4 + "\r\n" + UbuntuInstallProfile.Ubuntu2404Lts.NotesSuffixCloud ();
-			}
-
-			Result = new CreateUbuntuCloudVmParameters {
-				VmName = vmName,
-				SwitchName = _resolvedSwitchName,
-				CloudImageId = cloudImage.Id,
-				OsVhdFullPath = System.IO.Path.GetFullPath (osVhdPath),
-				SeedVhdFullPath = System.IO.Path.GetFullPath (seedVhdPath),
-				VmDirectory = System.IO.Path.GetFullPath (vmDir),
-				OsDiskSizeBytes = (ulong)((long)diskGb * 1024L * 1024 * 1024),
-				MemoryStartupBytes = 1L * 1024L * 1024 * 1024,
-				MemoryMinimumBytes = 1L * 1024L * 1024 * 1024,
-				MemoryMaximumBytes = (long)memGb * 1024L * 1024 * 1024,
-				ProcessorCount = cpuCount,
-				AdminUsername = adminUser,
-				AdminPassword = adminPass,
-				Hostname = hostname,
-				Profile = UbuntuInstallProfile.Ubuntu2404Lts,
-				Notes = notes,
-				StaticGuestIpv4 = guestIpv4,
-				DefaultGateway = _poolSettings.DefaultGateway.Trim (),
-				PrefixLength = _poolSettings.PrefixLength,
-				DnsServers = dnsServers
-			};
-			base.DialogResult = true;
+		base.DialogResult = true;
 		}
 
 		private void CancelButton_Click (object sender, RoutedEventArgs e)

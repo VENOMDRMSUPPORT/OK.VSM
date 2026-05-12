@@ -1,6 +1,6 @@
 ﻿{
-    "version":  "1.1.10",
-    "downloadUrl":  "https://github.com/VENOMDRMSUPPORT/OK.VSM/releases/download/v1.1.10/HyperVMManager-Setup-1.1.10.exe",
-    "sha256":  "6247D3751AE1D33D8F03B8BA490ACE347844CFBBAC8666FAADCA15FF663B45A9",
-    "releaseNotes":  "Release v1.1.10"
+    "version":  "1.2.0",
+    "downloadUrl":  "https://github.com/VENOMDRMSUPPORT/OK.VSM/releases/download/v1.2.0/HyperVMManager-Setup-1.2.0.exe",
+    "sha256":  "PLACEHOLDER_UPDATE_AFTER_BUILD",
+    "releaseNotes":  "Release v1.2.0 — Added Ubuntu 22.04 support, improved Auto VM path logic, fixed cloud cache hint bug"
 }

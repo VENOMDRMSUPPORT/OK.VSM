@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Management;
 using System.Runtime.CompilerServices;
@@ -712,8 +713,8 @@ public VirtualMachine? SelectedVm
 			});
 			CreateUbuntuCloudVmParameters p = createVmDialog.Result;
 			CloudImageCatalogItem image = CloudImageCatalog.GetById(p.CloudImageId);
-			VerifiedCachedArchive archive = await CloudImageCacheService.EnsureVerifiedArchiveAsync(image, progress);
-			PreparedOsTemplate preparedTemplate = await CloudImageCacheService.EnsurePreparedBaseTemplateAsync(archive, image, p.OsDiskSizeBytes, progress);
+			VerifiedCachedArchive archive = await CloudImageCacheService.EnsureVerifiedArchiveAsync(image, p.OsVhdFullPath, progress);
+			PreparedOsTemplate preparedTemplate = await CloudImageCacheService.EnsurePreparedBaseTemplateAsync(archive, image, p.OsVhdFullPath, p.OsDiskSizeBytes, progress);
 			if (!preparedTemplate.TemplatePath.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase))
 			{
 				MessageBox.Show("Ubuntu shared base template was prepared with an unexpected disk format:\n" + preparedTemplate.TemplatePath, "Create VM", MessageBoxButton.OK, MessageBoxImage.Hand);
@@ -1163,6 +1164,21 @@ public VirtualMachine? SelectedVm
 
 	private static string ResolveVmDirectory(string vmName)
 	{
+		// 1. استخدم آخر مسار استخدمه المستخدم (محفوظ في الإعدادات)
+		var settings = AppUserSettings.Load();
+		if (!string.IsNullOrWhiteSpace(settings.LastUsedVmPath) && System.IO.Directory.Exists(settings.LastUsedVmPath))
+		{
+			return System.IO.Path.GetFullPath(System.IO.Path.Combine(settings.LastUsedVmPath, vmName));
+		}
+
+		// 2. ابحث عن أول درايف فيزيائي مناسب
+		string? candidate = DiscoverFirstSuitableDrive();
+		if (candidate != null)
+		{
+			return System.IO.Path.GetFullPath(System.IO.Path.Combine(candidate, "HyperVMManager", "vhdx", vmName));
+		}
+
+		// 3. fallback: مجلد التشغيل (مع فحص وضع التطوير)
 		string baseDir = AppContext.BaseDirectory;
 		string devPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, "..", "..", "..", "vhdx", vmName));
 		if (System.IO.Directory.Exists(devPath))
@@ -1170,6 +1186,39 @@ public VirtualMachine? SelectedVm
 			return devPath;
 		}
 		return System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, "vhdx", vmName));
+	}
+
+	/// <summary>
+	/// يكتشف أول درايف فيزيائي مناسب ليكون مسار الـ VM الافتراضي.
+	/// يتجنب System Drive ويتجنب الدرايفات الصغيرة أو USB.
+	/// </summary>
+	private static string? DiscoverFirstSuitableDrive()
+	{
+		try
+		{
+			string systemRoot = System.IO.Path.GetPathRoot(Environment.SystemDirectory) ?? "";
+
+			foreach (DriveInfo drive in DriveInfo.GetDrives())
+			{
+				if (drive.DriveType != DriveType.Fixed && drive.DriveType != DriveType.Network)
+					continue;
+
+				if (drive.RootDirectory.FullName.Equals(systemRoot, StringComparison.OrdinalIgnoreCase))
+					continue;
+
+				if (drive.TotalSize < 20L * 1024 * 1024 * 1024)
+					continue;
+
+				if (drive.IsReady)
+					return drive.RootDirectory.FullName.TrimEnd('\\');
+			}
+		}
+		catch
+		{
+			// تجاهل أي أخطاء في الاكتشاف
+		}
+
+		return null;
 	}
 		private async Task RefreshDrawerIfShowingAsync(string vmName)
 	{

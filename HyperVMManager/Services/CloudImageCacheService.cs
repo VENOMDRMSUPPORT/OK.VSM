@@ -22,48 +22,90 @@ public static class CloudImageCacheService
         AppBrand.DisplayName,
         "CloudImages");
 
-    public static string GetArchivePath(CloudImageCatalogItem image)
+    public static string GetCacheDirectoryForVmDisk(string vmDiskPath)
     {
-        return Path.Combine(CacheDirectory, image.ArchiveFileName);
-    }
-
-    public static bool IsVerifiedArchiveCached(CloudImageCatalogItem image)
-    {
-        string archivePath = GetArchivePath(image);
-        string shaPath = GetArchiveShaPath(image);
-        if (!File.Exists(archivePath) || !File.Exists(shaPath))
+        if (string.IsNullOrWhiteSpace(vmDiskPath))
         {
-            return false;
+            return CacheDirectory;
         }
 
-        string expected = File.ReadAllText(shaPath).Trim();
-        return expected.Length == 64
-            && string.Equals(ComputeSha256(archivePath), expected, StringComparison.OrdinalIgnoreCase);
+        string fullPath = Path.GetFullPath(vmDiskPath);
+        string? root = Path.GetPathRoot(fullPath);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return CacheDirectory;
+        }
+
+        return Path.Combine(root, AppBrand.InternalAppDataFolder, "CloudImages");
+    }
+
+    public static string GetTemplateCacheDirectoryForVmDisk(string vmDiskPath)
+    {
+        return Path.Combine(GetCacheDirectoryForVmDisk(vmDiskPath), "Templates");
+    }
+
+    public static string GetArchivePath(CloudImageCatalogItem image, string? vmDiskPath = null)
+    {
+        return Path.Combine(GetCacheDirectoryForVmDisk(vmDiskPath ?? ""), image.ArchiveFileName);
+    }
+
+    public static bool IsVerifiedArchiveCached(CloudImageCatalogItem image, string? vmDiskPath = null)
+    {
+        foreach (string cacheRoot in EnumerateCandidateCacheDirectories(vmDiskPath))
+        {
+            string archivePath = Path.Combine(cacheRoot, image.ArchiveFileName);
+            string shaPath = archivePath + ".sha256";
+            if (!File.Exists(archivePath) || !File.Exists(shaPath))
+            {
+                continue;
+            }
+
+            string expected = File.ReadAllText(shaPath).Trim();
+            if (expected.Length == 64
+                && string.Equals(ComputeSha256(archivePath), expected, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static async Task<VerifiedCachedArchive> EnsureVerifiedArchiveAsync(
         CloudImageCatalogItem image,
+        string targetVmDiskPath,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(CacheDirectory);
-        string archivePath = GetArchivePath(image);
+        string cacheDirectory = GetCacheDirectoryForVmDisk(targetVmDiskPath);
+        Directory.CreateDirectory(cacheDirectory);
+        string archivePath = GetArchivePath(image, targetVmDiskPath);
         string partialPath = archivePath + ".partial";
 
         progress?.Report("Checking Ubuntu cloud image cache...");
         string expectedSha = await GetExpectedSha256Async(image, cancellationToken).ConfigureAwait(false);
 
-        if (File.Exists(archivePath))
+        foreach (string candidateRoot in EnumerateCandidateCacheDirectories(targetVmDiskPath))
         {
+            string candidateArchivePath = Path.Combine(candidateRoot, image.ArchiveFileName);
+            if (!File.Exists(candidateArchivePath))
+            {
+                continue;
+            }
+
             progress?.Report("Verifying cached Ubuntu cloud image...");
-            string existingSha = ComputeSha256(archivePath);
+            string existingSha = ComputeSha256(candidateArchivePath);
             if (string.Equals(existingSha, expectedSha, StringComparison.OrdinalIgnoreCase))
             {
-                File.WriteAllText(GetArchiveShaPath(image), expectedSha);
+                if (!string.Equals(candidateArchivePath, archivePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Copy(candidateArchivePath, archivePath, overwrite: true);
+                }
+                File.WriteAllText(GetArchiveShaPath(image, targetVmDiskPath), expectedSha);
                 return new VerifiedCachedArchive { Image = image, ArchivePath = archivePath, Sha256 = expectedSha };
             }
 
-            QuarantineCorruptArchive(archivePath);
+            QuarantineCorruptArchive(candidateArchivePath);
         }
 
         if (File.Exists(partialPath))
@@ -93,7 +135,7 @@ public static class CloudImageCacheService
             File.Delete(archivePath);
         }
         File.Move(partialPath, archivePath);
-        File.WriteAllText(GetArchiveShaPath(image), expectedSha);
+        File.WriteAllText(GetArchiveShaPath(image, targetVmDiskPath), expectedSha);
         return new VerifiedCachedArchive { Image = image, ArchivePath = archivePath, Sha256 = expectedSha };
     }
 
@@ -109,6 +151,7 @@ public static class CloudImageCacheService
     public static async Task<PreparedOsTemplate> EnsurePreparedBaseTemplateAsync(
         VerifiedCachedArchive archive,
         CloudImageCatalogItem image,
+        string targetVmDiskPath,
         ulong requestedSizeBytes,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
@@ -118,7 +161,7 @@ public static class CloudImageCacheService
             throw new InvalidOperationException("Requested base template disk size must be greater than zero.");
         }
 
-        string templateDirectory = Path.Combine(CacheDirectory, "Templates");
+        string templateDirectory = GetTemplateCacheDirectoryForVmDisk(targetVmDiskPath);
         Directory.CreateDirectory(templateDirectory);
 
         string extension = image.FinalDiskExtension;
@@ -336,9 +379,18 @@ public static class CloudImageCacheService
         return hash;
     }
 
-    private static string GetArchiveShaPath(CloudImageCatalogItem image)
+    private static string GetArchiveShaPath(CloudImageCatalogItem image, string? vmDiskPath = null)
     {
-        return GetArchivePath(image) + ".sha256";
+        return GetArchivePath(image, vmDiskPath) + ".sha256";
+    }
+
+    private static string[] EnumerateCandidateCacheDirectories(string? vmDiskPath)
+    {
+        string preferred = GetCacheDirectoryForVmDisk(vmDiskPath ?? "");
+        return new[] { preferred, CacheDirectory }
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static string? ParseSha256Sums(string sums, string fileName)
