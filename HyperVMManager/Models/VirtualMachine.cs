@@ -91,6 +91,10 @@ namespace HyperVMManager.Models;
 
 		private string _seedVhdActualSize = "";
 
+		private string _osVhdParentPath = "";
+
+		private string _osVhdParentActualSize = "";
+
 		public string Name { get; set; } = string.Empty;
 
 		public ushort EnabledState { get; set; }
@@ -338,6 +342,32 @@ namespace HyperVMManager.Models;
 		}
 
 		public bool HasOsVhdActualSize => !string.IsNullOrWhiteSpace (_osVhdActualSize);
+
+		public string OsVhdParentPath {
+			get {
+				return _osVhdParentPath;
+			}
+			set {
+				_osVhdParentPath = value ?? "";
+				OnPropertyChanged ("OsVhdParentPath");
+				OnPropertyChanged ("HasOsVhdParentPath");
+			}
+		}
+
+		public bool HasOsVhdParentPath => !string.IsNullOrWhiteSpace (_osVhdParentPath);
+
+		public string OsVhdParentActualSize {
+			get {
+				return _osVhdParentActualSize;
+			}
+			set {
+				_osVhdParentActualSize = value ?? "";
+				OnPropertyChanged ("OsVhdParentActualSize");
+				OnPropertyChanged ("HasOsVhdParentActualSize");
+			}
+		}
+
+		public bool HasOsVhdParentActualSize => !string.IsNullOrWhiteSpace (_osVhdParentActualSize);
 
 		public string SeedVhdActualSize {
 			get {

@@ -424,7 +424,7 @@ namespace HyperVMManager.Services;
 			return (ok: true, message: string.Empty);
 		}
 
-		public static (bool ok, string message) CreateUbuntuCloudVm (CreateUbuntuCloudVmParameters p, IProgress<string>? progress = null)
+		public static (bool ok, string message) CreateUbuntuCloudVm (CreateUbuntuCloudVmParameters p, string parentTemplatePath, IProgress<string>? progress = null)
 		{
 			var (switchOk, isExternal, switchType, switchErr) = ValidateExternalSwitch (p.SwitchName);
 			if (!switchOk) {
@@ -438,22 +438,21 @@ namespace HyperVMManager.Services;
 			string value2 = VmLiteral (p.SwitchName);
 			string text = "'" + EscapeSingleQuoted (p.OsVhdFullPath) + "'";
 			string text2 = "'" + EscapeSingleQuoted (p.SeedVhdFullPath) + "'";
+			string text3 = "'" + EscapeSingleQuoted (parentTemplatePath) + "'";
 			string value4 = "'" + EscapeSingleQuoted (p.Notes) + "'";
 			long memoryStartupBytes = p.MemoryStartupBytes;
 			long memoryMinimumBytes = p.MemoryMinimumBytes;
 			long memoryMaximumBytes = p.MemoryMaximumBytes;
 			int processorCount = p.ProcessorCount;
-			ulong osDiskSizeBytes = p.OsDiskSizeBytes;
 			string s = CloudInitSeedBuilder.BuildUserData (p);
 			string s2 = CloudInitSeedBuilder.BuildMetaData (string.IsNullOrWhiteSpace (p.Hostname) ? p.VmName : p.Hostname.Trim ());
-			string? text3 = CloudInitSeedBuilder.BuildNetworkConfig (p);
+			string? text4 = CloudInitSeedBuilder.BuildNetworkConfig (p);
 			string udB = Convert.ToBase64String (Encoding.UTF8.GetBytes (s));
 			string mdB = Convert.ToBase64String (Encoding.UTF8.GetBytes (s2));
-			string ncB = ((text3 != null) ? Convert.ToBase64String (Encoding.UTF8.GetBytes (text3)) : "");
-			(string, string)[] array = new(string, string)[7] {
+			string ncB = ((text4 != null) ? Convert.ToBase64String (Encoding.UTF8.GetBytes (text4)) : "");
+			(string, string)[] array = new(string, string)[6] {
 				("Preparing directories…", BuildPowerShellVirtualDiskHelpers () + $"$os = {text}\r\n$dir = Split-Path -LiteralPath $os\r\nif ($dir -and -not (Test-Path -LiteralPath $dir)) {{ New-Item -ItemType Directory -Path $dir -Force | Out-Null }}\r\nRepair-VirtualDiskDirectoryForHyperV $dir\r\n$sd = {text2}\r\n$sdir = Split-Path -LiteralPath $sd\r\nif ($sdir -and -not (Test-Path -LiteralPath $sdir)) {{ New-Item -ItemType Directory -Path $sdir -Force | Out-Null }}\r\nRepair-VirtualDiskDirectoryForHyperV $sdir\r\n"),
-				("Sizing OS disk…", $"$v = Get-VHD -Path {text}\r\nif ($v.Size -lt {osDiskSizeBytes}) {{ Resize-VHD -Path {text} -SizeBytes {osDiskSizeBytes} }}\r\n"),
-				("Patching GRUB for NoCloud datasource…", BuildGrubPatchScript (text)),
+				("Creating differencing OS disk…", $"if (-not (Test-Path -LiteralPath {text3})) {{ throw 'Shared Ubuntu base template was not found.' }}\r\nif (Test-Path -LiteralPath {text}) {{ throw 'OS disk already exists at the VM path.' }}\r\n$vhdParentAttrs = [System.IO.File]::GetAttributes({text3})\r\nif (($vhdParentAttrs -band [System.IO.FileAttributes]::ReadOnly) -eq 0) {{ [System.IO.File]::SetAttributes({text3}, ($vhdParentAttrs -bor [System.IO.FileAttributes]::ReadOnly)) }}\r\nNew-VHD -Path {text} -ParentPath {text3} -Differencing | Out-Null\r\nRepair-VirtualDiskFileForHyperV {text}\r\n"),
 				("Building cloud-init seed disk…", BuildSeedDiskScript (udB, mdB, ncB, text2)),
 				("Creating virtual machine…", $"New-VM -Name {value} -MemoryStartupBytes {memoryStartupBytes} -Generation 2 -VHDPath {text} -SwitchName {value2}\r\n"),
 				("Configuring shared resources and disks...", $"Set-VMMemory -VMName {value} -DynamicMemoryEnabled $true -MinimumBytes {memoryMinimumBytes} -StartupBytes {memoryStartupBytes} -MaximumBytes {memoryMaximumBytes}\r\nSet-VMProcessor -VMName {value} -Count {processorCount}\r\nAdd-VMHardDiskDrive -VMName {value} -Path {text2}\r\n$expectedOs = [System.IO.Path]::GetFullPath({text})\r\n$osHdd = @(Get-VMHardDiskDrive -VMName {value} | Where-Object {{ $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $expectedOs) }})[0]\r\nif (-not $osHdd) {{ throw 'UEFI: could not find the OS disk for FirstBootDevice (path mismatch after attaching seed disk).' }}\r\nSet-VMFirmware -VMName {value} -SecureBootTemplate MicrosoftUEFICertificateAuthority\r\nSet-VMFirmware -VMName {value} -FirstBootDevice $osHdd\r\nGet-VMDvdDrive -VMName {value} -ErrorAction SilentlyContinue | Remove-VMDvdDrive -ErrorAction SilentlyContinue\r\nif (@(Get-VMDvdDrive -VMName {value} -ErrorAction SilentlyContinue).Count -gt 0) {{ throw 'Virtual DVD drive could not be removed; Linux may hang on /dev/sr0.' }}\r\n"),
@@ -516,11 +515,6 @@ function Repair-VirtualDiskFileForHyperV {
 }
 
 """;
-		}
-
-		private static string BuildGrubPatchScript (string osVhdPsSingleQuoted)
-		{
-			return BuildPowerShellVirtualDiskHelpers () + "Assert-VirtualDiskFileMountableForHyperV " + osVhdPsSingleQuoted + "\r\n$vhd = Mount-VHD -Path " + osVhdPsSingleQuoted + " -PassThru\r\ntry {\r\n  Start-Sleep -Milliseconds 1500\r\n  $disk = $vhd | Get-Disk\r\n  $efiPart = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.GptType -eq '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' } | Select-Object -First 1\r\n  if (-not $efiPart) { Write-Output 'No EFI partition found — skipping GRUB patch.'; return }\r\n  if (-not $efiPart.DriveLetter) {\r\n    $efiPart | Add-PartitionAccessPath -AssignDriveLetter -ErrorAction Stop\r\n    $efiPart = Get-Partition -DiskNumber $disk.Number -PartitionNumber $efiPart.PartitionNumber\r\n  }\r\n  $efiRoot = $efiPart.DriveLetter.ToString() + ':\\'\r\n  $grubCfg = Join-Path $efiRoot 'EFI\\ubuntu\\grub.cfg'\r\n  if (-not (Test-Path $grubCfg)) { $grubCfg = (Get-ChildItem (Join-Path $efiRoot 'EFI') -Recurse -Filter 'grub.cfg' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }\r\n  if (-not $grubCfg -or -not (Test-Path $grubCfg)) { Write-Output 'grub.cfg not found on EFI — skipping patch.'; return }\r\n  $content = [System.IO.File]::ReadAllText($grubCfg)\r\n  Write-Output \"ORIGINAL_GRUB_CFG>>>$content<<<\"\r\n  $match = [regex]::Match($content, 'search\\.fs_uuid\\s+(\\S+)')\r\n  if (-not $match.Success) { Write-Output 'Could not extract root UUID from grub.cfg — skipping patch.'; return }\r\n  $rootUuid = $match.Groups[1].Value\r\n  $pfxMatch = [regex]::Match($content, \"set prefix=\\(\\`$root\\)'([^']+)'\")\r\n  $pfx = if ($pfxMatch.Success) { $pfxMatch.Groups[1].Value } else { '/grub' }\r\n  $newCfg = \"search.fs_uuid $rootUuid root`nset prefix=(`$root)'$pfx'`ninsmod linux`ninsmod gzio`nlinux (`$root)/vmlinuz root=LABEL=cloudimg-rootfs ro quiet splash ds=nocloud`ninitrd (`$root)/initrd.img`nboot`nconfigfile `$prefix/grub.cfg`n\"\r\n  Copy-Item -LiteralPath $grubCfg -Destination ($grubCfg + '.orig') -Force\r\n  [System.IO.File]::WriteAllText($grubCfg, $newCfg, [System.Text.UTF8Encoding]::new($false))\r\n} finally {\r\n  Dismount-VHD -Path " + osVhdPsSingleQuoted + " -ErrorAction SilentlyContinue\r\n}\r\n";
 		}
 
 		private static string BuildSeedDiskScript (string udB64, string mdB64, string ncB64, string seedPathPsSingleQuoted)

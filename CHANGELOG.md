@@ -8,6 +8,15 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 ### Fixed
 - Auto-create External Hyper-V switch when none exists: the Create VM dialog now detects available physical network adapters and offers to create the required External switch with one click instead of blocking with a manual instruction.
 
+## [1.1.9] - 2026-05-12
+### Changed
+- Create Ubuntu cloud VMs from a shared prepared base VHDX template plus a per-VM differencing disk, instead of cloning a full private OS disk for every VM.
+- Reuse one cached base template per Ubuntu image and requested guest disk size, keeping the shared parent read-only and outside the VM folder.
+
+### Fixed
+- Stop Ubuntu cloud VM OS disks from consuming tens of gigabytes on the host immediately after creation when the guest has written only a small amount of data.
+- Show the shared parent template path and size in the VM details drawer so disk layout is visible from the UI.
+
 ## [1.1.7] - 2026-05-08
 ### Fixed
 - Enforce External Hyper-V switch for Ubuntu cloud VM creation — creation is blocked with a clear message when no External switch is available, preventing wrong IP assignment and missing internet access.

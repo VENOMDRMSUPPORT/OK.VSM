@@ -10,6 +10,10 @@ public sealed class VmDiskInfo
 
     public string SeedVhdActualSize { get; init; } = "";
 
+    public string OsVhdParentPath { get; init; } = "";
+
+    public string OsVhdParentActualSize { get; init; } = "";
+
     public string AllDiskPathsDisplay
     {
         get

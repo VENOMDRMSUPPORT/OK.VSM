@@ -158,6 +158,8 @@ namespace HyperVMManager.Services;
 					vm.SeedVhdPath = diskInfo.SeedVhdPath;
 					vm.OsVhdActualSize = diskInfo.OsVhdActualSize;
 					vm.SeedVhdActualSize = diskInfo.SeedVhdActualSize;
+					vm.OsVhdParentPath = diskInfo.OsVhdParentPath;
+					vm.OsVhdParentActualSize = diskInfo.OsVhdParentActualSize;
 				}
 				vm.DetailsLoaded = true;
 			}
@@ -184,7 +186,18 @@ namespace HyperVMManager.Services;
 					"  if (-not $os -and $paths.Count -gt 0) { $os = $paths[0] }\r\n" +
 					"  $osBytes = if ($os -and (Test-Path -LiteralPath $os)) { (Get-Item -LiteralPath $os).Length } else { 0 }\r\n" +
 					"  $seedBytes = if ($seed -and (Test-Path -LiteralPath $seed)) { (Get-Item -LiteralPath $seed).Length } else { 0 }\r\n" +
-					"  $bucket.Add([PSCustomObject]@{ Name = $vmName; Os = [string]$os; Seed = [string]$seed; OsSize = (Format-Size $osBytes); SeedSize = (Format-Size $seedBytes) })\r\n" +
+					"  $parent = ''\r\n" +
+					"  $parentBytes = 0\r\n" +
+					"  if ($os -and (Test-Path -LiteralPath $os)) {\r\n" +
+					"    try {\r\n" +
+					"      $vhd = Get-VHD -Path $os -ErrorAction Stop\r\n" +
+					"      if ($vhd.ParentPath) {\r\n" +
+					"        $parent = [string]$vhd.ParentPath\r\n" +
+					"        if (Test-Path -LiteralPath $parent) { $parentBytes = (Get-Item -LiteralPath $parent).Length }\r\n" +
+					"      }\r\n" +
+					"    } catch { }\r\n" +
+					"  }\r\n" +
+					"  $bucket.Add([PSCustomObject]@{ Name = $vmName; Os = [string]$os; Seed = [string]$seed; OsSize = (Format-Size $osBytes); SeedSize = (Format-Size $seedBytes); Parent = [string]$parent; ParentSize = (Format-Size $parentBytes) })\r\n" +
 					"}\r\n" +
 					"$bucket | ConvertTo-Json -Compress -Depth 5\r\n";
 				string text = Convert.ToBase64String (Encoding.Unicode.GetBytes (s));
@@ -217,7 +230,9 @@ namespace HyperVMManager.Services;
 						OsVhdPath = el.TryGetProperty ("Os", out var osEl) ? (osEl.GetString () ?? "") : "",
 						SeedVhdPath = el.TryGetProperty ("Seed", out var seedEl) ? (seedEl.GetString () ?? "") : "",
 						OsVhdActualSize = el.TryGetProperty ("OsSize", out var osSizeEl) ? (osSizeEl.GetString () ?? "") : "",
-						SeedVhdActualSize = el.TryGetProperty ("SeedSize", out var seedSizeEl) ? (seedSizeEl.GetString () ?? "") : ""
+						SeedVhdActualSize = el.TryGetProperty ("SeedSize", out var seedSizeEl) ? (seedSizeEl.GetString () ?? "") : "",
+						OsVhdParentPath = el.TryGetProperty ("Parent", out var parentEl) ? (parentEl.GetString () ?? "") : "",
+						OsVhdParentActualSize = el.TryGetProperty ("ParentSize", out var parentSizeEl) ? (parentSizeEl.GetString () ?? "") : ""
 					};
 				}
 				if (rootElement.ValueKind == JsonValueKind.Array) {

@@ -713,14 +713,14 @@ public VirtualMachine? SelectedVm
 			CreateUbuntuCloudVmParameters p = createVmDialog.Result;
 			CloudImageCatalogItem image = CloudImageCatalog.GetById(p.CloudImageId);
 			VerifiedCachedArchive archive = await CloudImageCacheService.EnsureVerifiedArchiveAsync(image, progress);
-			ExtractedOsDisk extractedDisk = await CloudImageCacheService.ExtractFinalOsDiskAsync(archive, p.OsVhdFullPath, progress);
-			if (!string.Equals(extractedDisk.DiskPath, p.OsVhdFullPath, StringComparison.OrdinalIgnoreCase))
+			PreparedOsTemplate preparedTemplate = await CloudImageCacheService.EnsurePreparedBaseTemplateAsync(archive, image, p.OsDiskSizeBytes, progress);
+			if (!preparedTemplate.TemplatePath.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase))
 			{
-				MessageBox.Show("Ubuntu OS disk was prepared at an unexpected path:\n" + extractedDisk.DiskPath, "Create VM", MessageBoxButton.OK, MessageBoxImage.Hand);
+				MessageBox.Show("Ubuntu shared base template was prepared with an unexpected disk format:\n" + preparedTemplate.TemplatePath, "Create VM", MessageBoxButton.OK, MessageBoxImage.Hand);
 				StatusText = "Create VM failed.";
 				return;
 			}
-			var (flag, messageBoxText) = await Task.Run(() => VmControlService.CreateUbuntuCloudVm(p, progress));
+			var (flag, messageBoxText) = await Task.Run(() => VmControlService.CreateUbuntuCloudVm(p, preparedTemplate.TemplatePath, progress));
 			if (!flag)
 			{
 				MessageBox.Show(messageBoxText, "Create VM", MessageBoxButton.OK, MessageBoxImage.Hand);
@@ -849,6 +849,8 @@ public VirtualMachine? SelectedVm
 				selectedVm.SeedVhdPath = info.SeedVhdPath;
 				selectedVm.OsVhdActualSize = info.OsVhdActualSize;
 				selectedVm.SeedVhdActualSize = info.SeedVhdActualSize;
+				selectedVm.OsVhdParentPath = info.OsVhdParentPath;
+				selectedVm.OsVhdParentActualSize = info.OsVhdParentActualSize;
 				ApplyOsIconGlyph(info.OsHint ?? "", this);
 			});
 		}

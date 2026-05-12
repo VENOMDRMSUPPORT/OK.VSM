@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -101,6 +102,106 @@ public static class CloudImageCacheService
         string finalDiskPath,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
+    {
+        return await PrepareFinalOsDiskAsync(archive, finalDiskPath, progress, cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async Task<PreparedOsTemplate> EnsurePreparedBaseTemplateAsync(
+        VerifiedCachedArchive archive,
+        CloudImageCatalogItem image,
+        ulong requestedSizeBytes,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (requestedSizeBytes == 0)
+        {
+            throw new InvalidOperationException("Requested base template disk size must be greater than zero.");
+        }
+
+        string templateDirectory = Path.Combine(CacheDirectory, "Templates");
+        Directory.CreateDirectory(templateDirectory);
+
+        string extension = image.FinalDiskExtension;
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = ".vhdx";
+        }
+        if (!extension.StartsWith(".", StringComparison.Ordinal))
+        {
+            extension = "." + extension;
+        }
+
+        string safeImageId = Regex.Replace(image.Id, @"[^A-Za-z0-9._-]+", "-").Trim('-');
+        if (safeImageId.Length == 0)
+        {
+            safeImageId = "ubuntu-cloud-image";
+        }
+
+        string sizeSuffix = requestedSizeBytes.ToString() + "B";
+        string templatePath = Path.Combine(templateDirectory, safeImageId + "-" + sizeSuffix + extension);
+        if (File.Exists(templatePath))
+        {
+            File.SetAttributes(templatePath, File.GetAttributes(templatePath) | FileAttributes.ReadOnly);
+            return new PreparedOsTemplate
+            {
+                TemplatePath = templatePath,
+                DiskFormat = extension.ToLowerInvariant()
+            };
+        }
+
+        string workingPath = Path.Combine(
+            templateDirectory,
+            Path.GetFileNameWithoutExtension(templatePath) + ".building" + extension);
+
+        if (File.Exists(workingPath))
+        {
+            File.SetAttributes(workingPath, FileAttributes.Normal);
+            File.Delete(workingPath);
+        }
+
+        try
+        {
+            progress?.Report("Preparing shared Ubuntu base template...");
+            ExtractedOsDisk extracted = await PrepareFinalOsDiskAsync(archive, workingPath, progress, cancellationToken).ConfigureAwait(false);
+
+            progress?.Report("Sizing shared Ubuntu base template...");
+            await VirtualDiskFileSystemService.ResizeVhdAsync(extracted.DiskPath, requestedSizeBytes, cancellationToken).ConfigureAwait(false);
+
+            progress?.Report("Patching shared Ubuntu base template...");
+            await VirtualDiskFileSystemService.PatchGrubForNoCloudAsync(extracted.DiskPath, cancellationToken).ConfigureAwait(false);
+
+            File.SetAttributes(extracted.DiskPath, File.GetAttributes(extracted.DiskPath) | FileAttributes.ReadOnly);
+            File.Move(extracted.DiskPath, templatePath);
+
+            return new PreparedOsTemplate
+            {
+                TemplatePath = templatePath,
+                DiskFormat = extension.ToLowerInvariant()
+            };
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(workingPath))
+                {
+                    File.SetAttributes(workingPath, FileAttributes.Normal);
+                    File.Delete(workingPath);
+                }
+            }
+            catch
+            {
+            }
+
+            throw;
+        }
+    }
+
+    private static async Task<ExtractedOsDisk> PrepareFinalOsDiskAsync(
+        VerifiedCachedArchive archive,
+        string finalDiskPath,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
     {
         string extension = Path.GetExtension(finalDiskPath);
         if (!extension.Equals(".vhd", StringComparison.OrdinalIgnoreCase)

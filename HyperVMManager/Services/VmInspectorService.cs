@@ -62,6 +62,10 @@ namespace HyperVMManager.Services;
 			public string OsVhdActualSize { get; init; } = "";
 
 			public string SeedVhdActualSize { get; init; } = "";
+
+			public string OsVhdParentPath { get; init; } = "";
+
+			public string OsVhdParentActualSize { get; init; } = "";
 		}
 
 		public sealed class VmNetworkRow
@@ -318,7 +322,9 @@ namespace HyperVMManager.Services;
 					OsVhdPath = diskInfo?.OsVhdPath ?? "",
 					SeedVhdPath = diskInfo?.SeedVhdPath ?? "",
 					OsVhdActualSize = diskInfo?.OsVhdActualSize ?? "",
-					SeedVhdActualSize = diskInfo?.SeedVhdActualSize ?? ""
+					SeedVhdActualSize = diskInfo?.SeedVhdActualSize ?? "",
+					OsVhdParentPath = diskInfo?.OsVhdParentPath ?? "",
+					OsVhdParentActualSize = diskInfo?.OsVhdParentActualSize ?? ""
 				};
 			} catch {
 				return new VmExtendedInfo {
