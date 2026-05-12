@@ -17,6 +17,10 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Stop Ubuntu cloud VM OS disks from consuming tens of gigabytes on the host immediately after creation when the guest has written only a small amount of data.
 - Show the shared parent template path and size in the VM details drawer so disk layout is visible from the UI.
 
+## [1.1.10] - 2026-05-12
+### Fixed
+- Close VENOM VM-WARE before launching the downloaded updater so Setup no longer needs to prompt about the app still using files during in-app update installation.
+
 ## [1.1.7] - 2026-05-08
 ### Fixed
 - Enforce External Hyper-V switch for Ubuntu cloud VM creation — creation is blocked with a clear message when no External switch is available, preventing wrong IP assignment and missing internet access.

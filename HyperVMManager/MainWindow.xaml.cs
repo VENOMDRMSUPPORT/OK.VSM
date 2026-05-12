@@ -96,14 +96,8 @@ public partial class MainWindow : Window
             var downloadDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HyperVMManager", "updates");
             var installerPath = await AppUpdateService.DownloadUpdateAsync(result.Manifest, downloadDir);
 
-            MessageBox.Show("The update installer is ready and will start now.", "Update", MessageBoxButton.OK, MessageBoxImage.Information);
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = installerPath,
-                UseShellExecute = true
-            });
-
+            MessageBox.Show("The update installer is ready. The app will close first, then setup will start automatically.", "Update", MessageBoxButton.OK, MessageBoxImage.Information);
+            LaunchInstallerAfterExit(installerPath);
             Application.Current.Shutdown();
         }
         catch (Exception ex)
@@ -204,6 +198,27 @@ public partial class MainWindow : Window
     private async void BtnCheckUpdates_Click(object sender, RoutedEventArgs e)
     {
         await CheckForUpdatesAsync(silentIfNoUpdate: false);
+    }
+
+    private static void LaunchInstallerAfterExit(string installerPath)
+    {
+        if (string.IsNullOrWhiteSpace(installerPath))
+        {
+            throw new InvalidOperationException("Installer path is invalid.");
+        }
+
+        string escapedInstallerPath = installerPath.Replace("'", "''");
+        string script =
+            "Start-Sleep -Seconds 2; " +
+            "Start-Process -LiteralPath '" + escapedInstallerPath + "'";
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"" + script + "\"",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
     }
 
     private void BtnHelp_Click(object sender, RoutedEventArgs e)
