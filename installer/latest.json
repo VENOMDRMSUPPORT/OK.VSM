@@ -1,6 +1,6 @@
 {
   "version": "1.3.0",
   "downloadUrl": "https://github.com/VENOMDRMSUPPORT/OK.VSM/releases/download/v1.3.0/HyperVMManager-Setup-1.3.0.exe",
-  "sha256": "F9F1736B615C4CBF8EA28CC5B366AD54DD5C041AEE4F53C965A3A796A0395F31",
+  "sha256": "64C36CD64020EDD938279BDFCD62F3BDB2BCCCE326B6C188E98FC3390F919531",
   "releaseNotes": "v1.3.0 - Orphaned VHDX detection, VHD type display, Dynamic VHDX verification, improved auto-update with reliable installer launch"
 }

@@ -215,7 +215,14 @@ public partial class MainWindow : Window
         var lines = new[]
         {
             "@echo off",
-            "timeout /t 2 /nobreak >nul",
+            "echo Waiting for VENOM VM-WARE to close...",
+            ":waitloop",
+            "tasklist /FI \"IMAGENAME eq HyperVMManager.exe\" 2>nul | find /I \"HyperVMManager.exe\" >nul",
+            "if not errorlevel 1 (",
+            "    timeout /t 1 /nobreak >nul",
+            "    goto waitloop",
+            ")",
+            "echo Starting installer...",
             $"start \"\" /WAIT \"{installerPath}\""
         };
         System.IO.File.WriteAllLines(batchPath, lines);

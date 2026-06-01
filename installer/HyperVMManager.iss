@@ -23,6 +23,8 @@ WizardStyle=modern
 UninstallDisplayIcon={app}\\{#AppExeName}
 UninstallDisplayName={#AppName}
 SetupIconFile={#AppIcon}
+CloseApplications=no
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
