@@ -82,14 +82,14 @@ namespace HyperVMManager.Services;
 			L ("write_files:");
 			if (text3.Length > 0 && text4.Length > 0 && prefixLength >= 1 && prefixLength <= 32) {
 				L ("  - path: /etc/cloud/cloud.cfg.d/99-disable-network-rendering.cfg");
-			L ("    owner: root:root");
-			L ("    permissions: '0644'");
-			L ("    content: |");
-			L ("      # Prevent cloud-init from re-rendering netplan on every boot.");
-			L ("      # Networking is fully managed by 01-hypervm.yaml (written below).");
-			L ("      network:");
-			L ("        config: disabled");
-			L ("  - path: /etc/netplan/01-hypervm.yaml");
+				L ("    owner: root:root");
+				L ("    permissions: '0644'");
+				L ("    content: |");
+				L ("      # Prevent cloud-init from re-rendering netplan on every boot.");
+				L ("      # Networking is fully managed by 01-hypervm.yaml (written below).");
+				L ("      network:");
+				L ("        config: disabled");
+				L ("  - path: /etc/netplan/01-hypervm.yaml");
 				L ("    owner: root:root");
 				L ("    permissions: '0600'");
 				L ("    content: |");
@@ -108,6 +108,16 @@ namespace HyperVMManager.Services;
 				foreach (string item in list) {
 					L ("                - " + item);
 				}
+			} else {
+				L ("  - path: /etc/netplan/01-hypervm.yaml");
+				L ("    owner: root:root");
+				L ("    permissions: '0600'");
+				L ("    content: |");
+				L ("      network:");
+				L ("        version: 2");
+				L ("        ethernets:");
+				L ("          eth0:");
+				L ("            dhcp4: true");
 			}
 			L ("  - path: /etc/ssh/sshd_config.d/99-zz-hypervm-ssh.conf");
 			L ("    owner: root:root");
@@ -120,10 +130,8 @@ namespace HyperVMManager.Services;
 			L ("      PasswordAuthentication yes");
 			L ("      KbdInteractiveAuthentication yes");
 			L ("runcmd:");
-			if (text3.Length > 0 && text4.Length > 0 && prefixLength >= 1 && prefixLength <= 32) {
-				L ("  - rm -f /etc/netplan/50-cloud-init.yaml /etc/netplan/90-hotplug-azure.yaml");
-				L ("  - netplan apply || true");
-			}
+			L ("  - rm -f /etc/netplan/50-cloud-init.yaml /etc/netplan/90-hotplug-azure.yaml /etc/netplan/99-default-init.yaml || true");
+			L ("  - netplan apply || true");
 			L ("  - bash -c 'rm -f /etc/ssh/sshd_config.d/*cloud-init*.conf /etc/ssh/sshd_config.d/*cloudimg*.conf || true'");
 			L ("  - bash -c " + ShellSingleQuote ("printf '%s\\n' " + ShellSingleQuote (text2 + ":" + p.AdminPassword) + " " + ShellSingleQuote ("root:" + p.AdminPassword) + " | chpasswd"));
 			L ("  - bash -c " + ShellSingleQuote ("hash=$(openssl passwd -6 " + ShellSingleQuote (p.AdminPassword) + "); usermod --password \"$hash\" " + ShellSingleQuote (text2) + "; usermod --password \"$hash\" root; usermod -U " + ShellSingleQuote (text2) + " || true; passwd -u root || true"));

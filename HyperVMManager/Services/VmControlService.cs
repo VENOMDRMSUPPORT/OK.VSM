@@ -342,7 +342,7 @@ namespace HyperVMManager.Services;
 
 		public static (bool ok, IReadOnlyList<string> names, string message) ListVirtualSwitchNames ()
 		{
-			string script = "$ErrorActionPreference = 'SilentlyContinue'\r\n@(Get-VMSwitch | Where-Object { $_.SwitchType -eq 'External' } | Sort-Object Name | ForEach-Object { [string]$_.Name }) | ConvertTo-Json -Compress\r\n";
+			string script = "$ErrorActionPreference = 'SilentlyContinue'\r\n$sw = Get-VMSwitch | Sort-Object Name\r\n$ext = $sw | Where-Object { $_.SwitchType -eq 'External' } | ForEach-Object { [string]$_.Name }\r\n$oth = $sw | Where-Object { $_.SwitchType -ne 'External' } | ForEach-Object { [string]$_.Name }\r\n@($ext + $oth) | ConvertTo-Json -Compress\r\n";
 			var (flag, text) = RunScript (script);
 			if (!flag) {
 				return (ok: false, names: Array.Empty<string> (), message: HumanizePowerShellOutput (text));

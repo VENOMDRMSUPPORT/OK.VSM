@@ -1,5 +1,5 @@
 #define AppName "VENOM VM-WARE"
-#define AppVersion "1.3.1"
+#define AppVersion "1.3.2"
 #define AppPublisher "VENOMDRMSUPPORT"
 #define AppExeName "HyperVMManager.exe"
 #define BuildOutput "..\\HyperVMManager\\bin\\Release\\net8.0-windows"

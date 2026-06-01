@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.2 (2026-06-01)
+
+### New Features & Improvements
+- **Default/NAT Switch Support**: Automatically lists and supports built-in and internal NAT/DHCP switches (e.g. "Default Switch") in Hyper-V, ensuring compatibility without requiring an External switch configuration.
+- **Zero-Configuration DHCP Networking**: Implemented automatic fallback DHCP Netplan configuration inside the cloud-init template if no static network profile is supplied, ensuring VM guests acquire IPs out-of-the-box.
+- **Independent Guest IP Auto-Reporting**: Integrates the guest Hyper-V KVP daemon (`hv-kvp-daemon`) offline setup seamlessly, ensuring IP addresses show up in the UI automatically.
+
 ## v1.3.1 (2026-06-01)
 
 ### Bug Fixes

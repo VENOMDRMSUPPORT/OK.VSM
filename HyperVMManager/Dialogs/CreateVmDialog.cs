@@ -460,13 +460,13 @@ CloudImageCatalogItem? cloudImage = null;
 
 		var (switchOk, isExternal, switchType, switchError) = VmControlService.ValidateExternalSwitch (_resolvedSwitchName);
 		if (!switchOk) {
-			MessageBox.Show (string.IsNullOrWhiteSpace (switchError) ? "Could not validate the selected Hyper-V switch." : switchError, "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-			return;
+			isExternal = false;
 		}
-		if (!isExternal) {
-			MessageBox.Show ("Ubuntu cloud VMs require an External Hyper-V switch for reliable networking.\n\nSelected switch type: " + (string.IsNullOrWhiteSpace (switchType) ? "Unknown" : switchType) + ".", "Network switch", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-			return;
-		}
+
+		// Auto DHCP if not external switch, or Default Switch, or no static network is configured
+		bool useDhcpNetwork = !isExternal || 
+		                      string.Equals (_resolvedSwitchName, "Default Switch", StringComparison.OrdinalIgnoreCase) || 
+		                      !_poolSettings.HasValidStaticNetwork ();
 
 		// Admin user: optional, default "venom"
 		string adminUser = TxtAdminUser.Text.Trim ();
@@ -480,7 +480,6 @@ CloudImageCatalogItem? cloudImage = null;
 			return;
 		}
 
-		bool useDhcpNetwork = false;
 		string guestIpv4 = "";
 		List<string> dnsServers = new List<string> ();
 		string notes = "Guest IPv4: DHCP (" + _resolvedSwitchName + ")" + Environment.NewLine + selectedProfile.NotesSuffixCloud ();
