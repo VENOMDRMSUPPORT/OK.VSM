@@ -17,26 +17,33 @@ public static class CloudImageCacheService
         Timeout = TimeSpan.FromMinutes(30)
     };
 
-    public static string CacheDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        AppBrand.DisplayName,
-        "CloudImages");
+    public static string CacheDirectory => GetAppInstallationCacheDirectory();
+
+    private static string GetAppInstallationCacheDirectory()
+    {
+        // Get the directory where the app is installed (where the EXE is located)
+        string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
+        if (!string.IsNullOrWhiteSpace(exePath))
+        {
+            string? installDir = Path.GetDirectoryName(exePath);
+            if (!string.IsNullOrWhiteSpace(installDir))
+            {
+                return Path.Combine(installDir, "CloudImages");
+            }
+        }
+        
+        // Fallback to app data if we can't determine install location
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            AppBrand.InternalAppDataFolder,
+            "CloudImages");
+    }
 
     public static string GetCacheDirectoryForVmDisk(string vmDiskPath)
     {
-        if (string.IsNullOrWhiteSpace(vmDiskPath))
-        {
-            return CacheDirectory;
-        }
-
-        string fullPath = Path.GetFullPath(vmDiskPath);
-        string? root = Path.GetPathRoot(fullPath);
-        if (string.IsNullOrWhiteSpace(root))
-        {
-            return CacheDirectory;
-        }
-
-        return Path.Combine(root, AppBrand.InternalAppDataFolder, "CloudImages");
+        // Always use the app's installation directory for cloud images cache
+        // This ensures consistency regardless of where VM disks are stored
+        return CacheDirectory;
     }
 
     public static string GetTemplateCacheDirectoryForVmDisk(string vmDiskPath)
@@ -108,18 +115,42 @@ public static class CloudImageCacheService
             QuarantineCorruptArchive(candidateArchivePath);
         }
 
+        // Resume download support - check if partial file exists
+        long existingBytes = 0;
         if (File.Exists(partialPath))
         {
-            File.Delete(partialPath);
+            existingBytes = new FileInfo(partialPath).Length;
+            progress?.Report($"Resuming download... ({existingBytes / 1024 / 1024} MB already downloaded)");
+        }
+        else
+        {
+            progress?.Report("Downloading Ubuntu cloud image...");
         }
 
-        progress?.Report("Downloading Ubuntu cloud image...");
-        using (var response = await HttpClient.GetAsync(image.ArchiveUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+        // Create HTTP request with Range header for resume support
+        using var request = new HttpRequestMessage(HttpMethod.Get, image.ArchiveUri);
+        if (existingBytes > 0)
+        {
+            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existingBytes, null);
+        }
+
+        using var response = await HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        
+        // If server doesn't support range, start from beginning
+        if (existingBytes > 0 && response.StatusCode != System.Net.HttpStatusCode.PartialContent)
+        {
+            progress?.Report("Server doesn't support resume, restarting download...");
+            File.Delete(partialPath);
+            existingBytes = 0;
+            request.Headers.Range = null;
+            using var restartResponse = await HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            restartResponse.EnsureSuccessStatusCode();
+            await DownloadToFileAsync(restartResponse, partialPath, existingBytes, progress, cancellationToken).ConfigureAwait(false);
+        }
+        else
         {
             response.EnsureSuccessStatusCode();
-            await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using var target = File.Create(partialPath);
-            await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+            await DownloadToFileAsync(response, partialPath, existingBytes, progress, cancellationToken).ConfigureAwait(false);
         }
 
         progress?.Report("Verifying Ubuntu cloud image...");
@@ -431,5 +462,56 @@ public static class CloudImageCacheService
             File.Delete(quarantinePath);
         }
         File.Move(path, quarantinePath);
+    }
+
+    private static async Task DownloadToFileAsync(
+        HttpResponseMessage response, 
+        string filePath, 
+        long existingBytes,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        // Open file for append if resuming, or create new
+        FileMode fileMode = existingBytes > 0 ? FileMode.Append : FileMode.Create;
+        await using var target = new FileStream(filePath, fileMode, FileAccess.Write, FileShare.None);
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+
+        // Get total size for progress calculation
+        long? totalBytes = response.Content.Headers.ContentLength;
+        if (existingBytes > 0 && totalBytes.HasValue)
+        {
+            totalBytes += existingBytes; // Add already downloaded bytes
+        }
+
+        long totalRead = existingBytes;
+        byte[] buffer = new byte[8192];
+        DateTime lastProgressUpdate = DateTime.MinValue;
+
+        while (true)
+        {
+            int read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read == 0) break;
+
+            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            totalRead += read;
+
+            // Update progress every second
+            if (progress != null && DateTime.Now - lastProgressUpdate > TimeSpan.FromSeconds(1))
+            {
+                lastProgressUpdate = DateTime.Now;
+                if (totalBytes.HasValue && totalBytes.Value > 0)
+                {
+                    double percent = (double)totalRead / totalBytes.Value * 100;
+                    double downloadedMB = totalRead / 1024.0 / 1024.0;
+                    double totalMB = totalBytes.Value / 1024.0 / 1024.0;
+                    progress.Report($"Downloading... {percent:F1}% ({downloadedMB:F1} / {totalMB:F1} MB)");
+                }
+                else
+                {
+                    double downloadedMB = totalRead / 1024.0 / 1024.0;
+                    progress.Report($"Downloading... {downloadedMB:F1} MB");
+                }
+            }
+        }
     }
 }

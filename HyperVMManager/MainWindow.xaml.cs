@@ -207,17 +207,26 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("Installer path is invalid.");
         }
 
-        string escapedInstallerPath = installerPath.Replace("'", "''");
-        string script =
-            "Start-Sleep -Seconds 2; " +
-            "Start-Process -LiteralPath '" + escapedInstallerPath + "'";
+        // Create a batch file that waits for the app to exit, then runs the installer as Admin
+        var batchDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HyperVMManager", "updates");
+        System.IO.Directory.CreateDirectory(batchDir);
+        var batchPath = System.IO.Path.Combine(batchDir, "update.bat");
 
+        var lines = new[]
+        {
+            "@echo off",
+            "timeout /t 2 /nobreak >nul",
+            $"start \"\" /WAIT \"{installerPath}\""
+        };
+        System.IO.File.WriteAllLines(batchPath, lines);
+
+        // Launch the batch file with admin privileges, visible so user can see progress
         Process.Start(new ProcessStartInfo
         {
-            FileName = "powershell.exe",
-            Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"" + script + "\"",
-            UseShellExecute = false,
-            CreateNoWindow = true
+            FileName = batchPath,
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = ProcessWindowStyle.Normal
         });
     }
 
