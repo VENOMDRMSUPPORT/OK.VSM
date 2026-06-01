@@ -79,7 +79,7 @@
                     </Border>
                     <TextBlock x:Name="TxtBrandName" Text="VENOM VM-WARE" FontSize="15" FontWeight="SemiBold"
                                Foreground="#F0F6FC" VerticalAlignment="Center" FontFamily="Segoe UI"/>
-                    <TextBlock x:Name="TxtAppVersion" Text="v1.1.0" FontSize="11" Foreground="#9DA7AF"
+                    <TextBlock x:Name="TxtAppVersion" Text="v1.3.0" FontSize="11" Foreground="#9DA7AF"
                                VerticalAlignment="Center" Margin="8,0,0,0" FontFamily="Segoe UI"/>
 
                     <Button x:Name="BtnRefresh" Style="{StaticResource TitleIconButton}" Margin="10,0,0,0"
@@ -378,6 +378,63 @@
                     <TextBlock Text="Run as Administrator and ensure Hyper-V is enabled."
                                FontSize="13" Foreground="#6E7681" HorizontalAlignment="Center" Margin="0,8,0,0" FontFamily="Segoe UI"/>
                 </StackPanel>
+
+                <!-- Orphaned VHDX Section -->
+                <Border Grid.Row="2" Margin="20,0,12,12" Visibility="{Binding HasOrphanedVhdx, Converter={StaticResource BoolToVis}}">
+                    <Border Background="#1A1000" BorderBrush="#5C3D00" BorderThickness="1" CornerRadius="10" Padding="16">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#D29922"
+                                           VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="ORPHANED VHDX FILES" FontSize="12" Foreground="#D29922" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                                <TextBlock Text="{Binding OrphanedCount, StringFormat=' ({0})'}" FontSize="12" Foreground="#D29922"
+                                           VerticalAlignment="Center" FontFamily="Segoe UI" Margin="4,0,0,0"/>
+                            </StackPanel>
+                            <TextBlock Text="These VHDX files on disk are not linked to any registered Hyper-V VM. You can safely delete them to free disk space."
+                                       FontSize="12" Foreground="#9DA7AF" FontFamily="Segoe UI" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                            <ItemsControl ItemsSource="{Binding OrphanedVhdxFiles}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#21262D" CornerRadius="8" Padding="14,10" Margin="0,0,0,6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding FolderName}" FontSize="14" Foreground="#F0F6FC" FontWeight="SemiBold" FontFamily="Segoe UI"/>
+                                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                        <TextBlock Text="Size: " FontSize="12" Foreground="#8B949E" FontFamily="Segoe UI"/>
+                                                        <TextBlock Text="{Binding SizeDisplay}" FontSize="12" Foreground="#B1BAC4" FontFamily="Consolas"/>
+                                                        <TextBlock Text="  |  Path: " FontSize="12" Foreground="#8B949E" FontFamily="Segoe UI" Margin="12,0,0,0"/>
+                                                        <TextBlock Text="{Binding VhdxPath}" FontSize="11" Foreground="#6E7681" FontFamily="Consolas" TextTrimming="CharacterEllipsis" MaxWidth="400"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" VerticalAlignment="Center"
+                                                        Background="#3D1F1F" BorderBrush="#5C2D2D" BorderThickness="1"
+                                                        Padding="12,6" Cursor="Hand" Command="{Binding DataContext.DeleteOrphanCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="#3D1F1F" BorderBrush="#5C2D2D" BorderThickness="1" CornerRadius="6" Padding="12,6">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="#F85149" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                        <TextBlock Text="Delete" FontSize="12" Foreground="#F85149" FontFamily="Segoe UI" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </Border>
             </Grid>
                 </Grid>
 

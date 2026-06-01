@@ -95,6 +95,8 @@ namespace HyperVMManager.Models;
 
 		private string _osVhdParentActualSize = "";
 
+		private string _osVhdType = "";
+
 		public string Name { get; set; } = string.Empty;
 
 		public ushort EnabledState { get; set; }
@@ -381,6 +383,19 @@ namespace HyperVMManager.Models;
 		}
 
 		public bool HasSeedVhdActualSize => !string.IsNullOrWhiteSpace (_seedVhdActualSize);
+
+		public string OsVhdType {
+			get {
+				return _osVhdType;
+			}
+			set {
+				_osVhdType = value ?? "";
+				OnPropertyChanged ("OsVhdType");
+				OnPropertyChanged ("HasOsVhdType");
+			}
+		}
+
+		public bool HasOsVhdType => !string.IsNullOrWhiteSpace (_osVhdType);
 
 		public event PropertyChangedEventHandler? PropertyChanged;
 

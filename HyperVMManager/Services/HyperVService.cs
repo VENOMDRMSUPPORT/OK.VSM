@@ -160,6 +160,7 @@ namespace HyperVMManager.Services;
 					vm.SeedVhdActualSize = diskInfo.SeedVhdActualSize;
 					vm.OsVhdParentPath = diskInfo.OsVhdParentPath;
 					vm.OsVhdParentActualSize = diskInfo.OsVhdParentActualSize;
+					vm.OsVhdType = diskInfo.OsVhdType;
 				}
 				vm.DetailsLoaded = true;
 			}
@@ -197,7 +198,11 @@ namespace HyperVMManager.Services;
 					"      }\r\n" +
 					"    } catch { }\r\n" +
 					"  }\r\n" +
-					"  $bucket.Add([PSCustomObject]@{ Name = $vmName; Os = [string]$os; Seed = [string]$seed; OsSize = (Format-Size $osBytes); SeedSize = (Format-Size $seedBytes); Parent = [string]$parent; ParentSize = (Format-Size $parentBytes) })\r\n" +
+					"  $vhdType = ''\r\n" +
+					"  if ($os -and (Test-Path -LiteralPath $os)) {\r\n" +
+					"    try { $vhdInfo = Get-VHD -Path $os -ErrorAction Stop; $vhdType = [string]$vhdInfo.VhdType } catch { }\r\n" +
+					"  }\r\n" +
+					"  $bucket.Add([PSCustomObject]@{ Name = $vmName; Os = [string]$os; Seed = [string]$seed; OsSize = (Format-Size $osBytes); SeedSize = (Format-Size $seedBytes); Parent = [string]$parent; ParentSize = (Format-Size $parentBytes); VhdType = $vhdType })\r\n" +
 					"}\r\n" +
 					"$bucket | ConvertTo-Json -Compress -Depth 5\r\n";
 				string text = Convert.ToBase64String (Encoding.Unicode.GetBytes (s));
@@ -232,8 +237,9 @@ namespace HyperVMManager.Services;
 						OsVhdActualSize = el.TryGetProperty ("OsSize", out var osSizeEl) ? (osSizeEl.GetString () ?? "") : "",
 						SeedVhdActualSize = el.TryGetProperty ("SeedSize", out var seedSizeEl) ? (seedSizeEl.GetString () ?? "") : "",
 						OsVhdParentPath = el.TryGetProperty ("Parent", out var parentEl) ? (parentEl.GetString () ?? "") : "",
-						OsVhdParentActualSize = el.TryGetProperty ("ParentSize", out var parentSizeEl) ? (parentSizeEl.GetString () ?? "") : ""
-					};
+						OsVhdParentActualSize = el.TryGetProperty ("ParentSize", out var parentSizeEl) ? (parentSizeEl.GetString () ?? "") : "",
+						OsVhdType = el.TryGetProperty ("VhdType", out var vhdTypeEl) ? (vhdTypeEl.GetString () ?? "") : ""
+						};
 				}
 				if (rootElement.ValueKind == JsonValueKind.Array) {
 					foreach (JsonElement item in rootElement.EnumerateArray ()) {
@@ -360,6 +366,104 @@ namespace HyperVMManager.Services;
 				num2++;
 			}
 			return $"{num:F1} {array [num2]}";
+		}
+
+		/// <summary>
+		/// Scans all known VM storage directories for VHDX folders that are not
+		/// linked to any registered Hyper-V virtual machine (orphaned disks).
+		/// </summary>
+		public static List<OrphanedVhdxInfo> ScanOrphanedVhdx ()
+		{
+			var result = new List<OrphanedVhdxInfo> ();
+			try {
+				// Collect all registered VHDX paths from Hyper-V
+				var registeredPaths = new HashSet<string> (StringComparer.OrdinalIgnoreCase);
+				try {
+					using var searcher = new ManagementObjectSearcher (
+						"SELECT HardDrivePath FROM Msvm_ResourceAllocationSettingData WHERE ResourceSubType = 'Microsoft:Hyper-V:Virtual Hard Disk'");
+					foreach (ManagementObject obj in searcher.Get ()) {
+						string? path = obj ["HardDrivePath"] as string;
+						if (!string.IsNullOrWhiteSpace (path)) {
+							registeredPaths.Add (System.IO.Path.GetFullPath (path));
+						}
+					}
+				} catch {
+				}
+				// Also check HardDiskImagePath from VM settings
+				try {
+					using var searcher2 = new ManagementObjectSearcher (
+						"SELECT HardDiskImagePath FROM Msvm_VirtualSystemSettingData WHERE VirtualSystemType = 'Microsoft:Hyper-V:Virtual Machine'");
+					foreach (ManagementObject obj in searcher2.Get ()) {
+						string? path = obj ["HardDiskImagePath"] as string;
+						if (!string.IsNullOrWhiteSpace (path)) {
+							registeredPaths.Add (System.IO.Path.GetFullPath (path));
+						}
+					}
+				} catch {
+				}
+
+				// Scan all fixed + removable drives for "vhdx" subdirectories
+				foreach (var drive in DriveInfo.GetDrives ()) {
+					if (!drive.IsReady) continue;
+					if (drive.DriveType == DriveType.CDRom || drive.DriveType == DriveType.Network) continue;
+					string vhdxRoot = System.IO.Path.Combine (drive.Name, "vhdx");
+					if (!Directory.Exists (vhdxRoot)) continue;
+
+					foreach (string folder in Directory.GetDirectories (vhdxRoot)) {
+						string folderName = System.IO.Path.GetFileName (folder);
+						// Find VHDX files inside this folder
+						string[] vhdxFiles;
+						try {
+							vhdxFiles = Directory.GetFiles (folder, "*.vhdx", SearchOption.AllDirectories);
+						} catch { continue; }
+
+						foreach (string vhdxFile in vhdxFiles) {
+							string fullPath = System.IO.Path.GetFullPath (vhdxFile);
+							if (registeredPaths.Contains (fullPath)) continue;
+
+							// This VHDX is not registered to any VM — it's orphaned
+							try {
+								var fi = new FileInfo (vhdxFile);
+								var entry = new OrphanedVhdxInfo {
+									FolderName = folderName,
+									VhdxPath = fullPath,
+									SizeBytes = fi.Length,
+									SizeDisplay = $"{fi.Length / (1024.0 * 1024.0 * 1024.0):F1} GB",
+									ActualSizeDisplay = $"{fi.Length / (1024.0 * 1024.0 * 1024.0):F1} GB",
+								};
+								result.Add (entry);
+							} catch {
+							}
+						}
+					}
+				}
+			} catch {
+			}
+			return result;
+		}
+
+		/// <summary>
+		/// Deletes an orphaned VHDX file and its parent folder if empty.
+		/// </summary>
+		public static (bool ok, string message) DeleteOrphanedVhdx (string vhdxPath)
+		{
+			try {
+				string fullPath = System.IO.Path.GetFullPath (vhdxPath);
+				if (!File.Exists (fullPath)) return (false, "File not found.");
+				File.Delete (fullPath);
+				string? folder = System.IO.Path.GetDirectoryName (fullPath);
+				if (folder != null && Directory.Exists (folder)) {
+					try {
+						if (Directory.GetFileSystemEntries (folder).Length == 0) {
+							Directory.Delete (folder);
+						}
+					} catch {
+					}
+				}
+				return (true, "Deleted.");
+			} catch (Exception ex) {
+				return (false, ex.Message);
+			}
 		}
 	}
 

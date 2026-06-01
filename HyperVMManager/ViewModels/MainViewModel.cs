@@ -59,6 +59,30 @@ public class MainViewModel : INotifyPropertyChanged
 	private readonly DispatcherTimer _liveRefreshTimer;
 
 	public ObservableCollection<VirtualMachine> VirtualMachines { get; } = new ObservableCollection<VirtualMachine>();
+	public ObservableCollection<OrphanedVhdxInfo> OrphanedVhdxFiles { get; } = new ObservableCollection<OrphanedVhdxInfo>();
+	public ICommand DeleteOrphanCommand { get; }
+	private bool _hasOrphanedVhdx;
+	private int _orphanedCount;
+
+	public bool HasOrphanedVhdx
+	{
+		get { return _hasOrphanedVhdx; }
+		set
+		{
+			_hasOrphanedVhdx = value;
+			OnPropertyChanged("HasOrphanedVhdx");
+		}
+	}
+
+	public int OrphanedCount
+	{
+		get { return _orphanedCount; }
+		set
+		{
+			_orphanedCount = value;
+			OnPropertyChanged("OrphanedCount");
+		}
+	}
 
 
 	public bool IsLoading
@@ -386,6 +410,7 @@ public VirtualMachine? SelectedVm
 		{
 			TutorialDialog.ShowFor(Application.Current.MainWindow, markSeen: false);
 		});
+		DeleteOrphanCommand = new AsyncRelayCommand<OrphanedVhdxInfo>(OnDeleteOrphanAsync, (OrphanedVhdxInfo? v) => v != null);
 		_liveRefreshTimer = new DispatcherTimer
 		{
 			Interval = TimeSpan.FromSeconds(5.0)
@@ -1009,6 +1034,27 @@ public VirtualMachine? SelectedVm
 			StatusText = "No virtual machines found. Make sure Hyper-V is enabled.";
 		}
 		await RefreshPoolDisplayAsync();
+
+		// Scan for orphaned VHDX files
+		try
+		{
+			List<OrphanedVhdxInfo> orphans = await Task.Run(() => HyperVService.ScanOrphanedVhdx());
+			await Application.Current.Dispatcher.InvokeAsync(delegate
+			{
+				OrphanedVhdxFiles.Clear();
+				foreach (var orphan in orphans)
+				{
+					OrphanedVhdxFiles.Add(orphan);
+				}
+				OrphanedCount = orphans.Count;
+				HasOrphanedVhdx = orphans.Count > 0;
+			});
+			if (orphans.Count > 0)
+			{
+				StatusText = $"Ready — {vms.Count} VM(s). Found {orphans.Count} orphaned VHDX file(s).";
+			}
+		}
+		catch { }
 	}
 
 	private async Task AfterVmActionAsync()
@@ -1026,6 +1072,32 @@ public VirtualMachine? SelectedVm
 		finally
 		{
 			IsRefreshing = false;
+		}
+	}
+
+	private async Task OnDeleteOrphanAsync(OrphanedVhdxInfo? orphan)
+	{
+		if (orphan == null) return;
+		var result = MessageBox.Show(
+			$"Delete orphaned VHDX?\n\n{orphan.VhdxPath}\nSize: {orphan.SizeDisplay}\n\nThis action cannot be undone.",
+			"Delete Orphaned VHDX",
+			MessageBoxButton.YesNo,
+			MessageBoxImage.Warning);
+		if (result != MessageBoxResult.Yes) return;
+
+		StatusText = $"Deleting orphaned VHDX: {orphan.FolderName}...";
+		var (ok, message) = await Task.Run(() => HyperVService.DeleteOrphanedVhdx(orphan.VhdxPath));
+		if (ok)
+		{
+			OrphanedVhdxFiles.Remove(orphan);
+			OrphanedCount = OrphanedVhdxFiles.Count;
+			HasOrphanedVhdx = OrphanedVhdxFiles.Count > 0;
+			StatusText = $"Deleted orphaned VHDX: {orphan.FolderName}.";
+		}
+		else
+		{
+			MessageBox.Show($"Failed to delete:\n{message}", "Delete Orphaned VHDX", MessageBoxButton.OK, MessageBoxImage.Hand);
+			StatusText = "Delete failed.";
 		}
 	}
 
