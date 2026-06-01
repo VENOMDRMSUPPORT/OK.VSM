@@ -207,49 +207,47 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("Installer path is invalid.");
         }
 
-        // Create a batch file that waits for the app to exit, then runs the installer as Admin
-        var batchDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HyperVMManager", "updates");
-        System.IO.Directory.CreateDirectory(batchDir);
-        var batchPath = System.IO.Path.Combine(batchDir, "update.bat");
-        var logPath = System.IO.Path.Combine(batchDir, "update_log.txt");
+        // Create a PowerShell script that waits for the app to exit, then runs the installer
+        var scriptDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HyperVMManager", "updates");
+        System.IO.Directory.CreateDirectory(scriptDir);
+        var scriptPath = System.IO.Path.Combine(scriptDir, "update.ps1");
+        var logPath = System.IO.Path.Combine(scriptDir, "update_log.txt");
 
-        var lines = new[]
-        {
-            "@echo off",
-            $"echo [%date% %time%] Update batch started > \"{logPath}\"",
-            $"echo Installer: \"{installerPath}\" >> \"{logPath}\"",
-            "",
-            "echo Waiting for VENOM VM-WARE to close...",
-            "REM Wait up to 30 seconds for app to exit",
-            "set /a counter=0",
-            ":waitloop",
-            "tasklist /FI \"IMAGENAME eq HyperVMManager.exe\" 2>nul | find /I \"HyperVMManager.exe\" >nul",
-            "if errorlevel 1 goto :run_installer",
-            "set /a counter+=1",
-            "if %counter% GEQ 30 (",
-            $"    echo [%date% %time%] Timeout waiting for app exit >> \"{logPath}\"",
-            "    echo Timeout! Running installer anyway...",
-            "    goto :run_installer",
-            ")",
-            "timeout /t 1 /nobreak >nul",
-            "goto :waitloop",
-            "",
-            ":run_installer",
-            $"echo [%date% %time%] App exited, starting installer >> \"{logPath}\"",
-            "echo Starting installer...",
-            $"\"{installerPath}\"",
-            $"echo [%date% %time%] Installer finished (exit code %errorlevel%) >> \"{logPath}\"",
-        };
-        System.IO.File.WriteAllLines(batchPath, lines);
+        // PowerShell script: wait for app exit (max 30s), then run installer
+        var psScript = $@"$logPath = '{logPath.Replace("'", "''")}'
+$installerPath = '{installerPath.Replace("'", "''")}'
+""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Update script started"" | Out-File $logPath
+""Installer: $installerPath"" | Out-File $logPath -Append
 
-        // Launch the batch file with admin privileges, visible so user can see progress
+# Wait for app to exit (max 30 seconds)
+$elapsed = 0
+while ($elapsed -lt 30) {{
+    $proc = Get-Process -Name 'HyperVMManager' -ErrorAction SilentlyContinue
+    if (-not $proc) {{ break }}
+    Start-Sleep -Seconds 1
+    $elapsed++
+}}
+
+if ($elapsed -ge 30) {{
+    ""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Timeout, forcing installer"" | Out-File $logPath -Append
+}} else {{
+    ""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - App exited after $elapsed seconds"" | Out-File $logPath -Append
+}}
+
+# Run installer
+""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Starting installer..."" | Out-File $logPath -Append
+Start-Process -FilePath $installerPath -Wait
+""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Installer finished"" | Out-File $logPath -Append
+";
+        System.IO.File.WriteAllText(scriptPath, psScript);
+
+        // Launch PowerShell with the script — no Verb="runas" needed since app is already elevated
         Process.Start(new ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = $"/c \"{batchPath}\"",
-            UseShellExecute = true,
-            Verb = "runas",
-            WindowStyle = ProcessWindowStyle.Normal
+            FileName = "powershell.exe",
+            Arguments = $"-ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true
         });
     }
 
