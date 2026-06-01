@@ -133,6 +133,8 @@ namespace HyperVMManager.Services;
 			L ("  - systemctl enable ssh.socket || true");
 			L ("  - sshd -t || true");
 			L ("  - systemctl restart ssh || systemctl restart sshd || service ssh restart || true");
+			L ("  - apt-get update || true");
+			L ("  - apt-get install -y hv-kvp-daemon || true");
 			return sb.ToString ();
 			void L (string s)
 			{

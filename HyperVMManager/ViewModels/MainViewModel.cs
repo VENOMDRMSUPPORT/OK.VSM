@@ -352,6 +352,10 @@ public VirtualMachine? SelectedVm
 
 	public ICommand OpenHelpCommand { get; }
 
+	public ICommand ResetPasswordCommand { get; }
+
+	public ICommand RebuildOsCommand { get; }
+
 	public event PropertyChangedEventHandler? PropertyChanged;
 
 	public MainViewModel()
@@ -410,6 +414,8 @@ public VirtualMachine? SelectedVm
 		{
 			TutorialDialog.ShowFor(Application.Current.MainWindow, markSeen: false);
 		});
+		ResetPasswordCommand = new RelayCommand(OnResetPasswordAsync);
+		RebuildOsCommand = new RelayCommand(OnRebuildOsAsync);
 		DeleteOrphanCommand = new AsyncRelayCommand<OrphanedVhdxInfo>(OnDeleteOrphanAsync, (OrphanedVhdxInfo? v) => v != null);
 		_liveRefreshTimer = new DispatcherTimer
 		{
@@ -470,10 +476,6 @@ public VirtualMachine? SelectedVm
 				virtualMachine.Status = value.Status;
 				virtualMachine.Uptime = value.Uptime;
 				virtualMachine.IsRunning = value.IsRunning;
-				virtualMachine.OsVhdPath = value.OsVhdPath;
-				virtualMachine.SeedVhdPath = value.SeedVhdPath;
-				virtualMachine.OsVhdActualSize = value.OsVhdActualSize;
-				virtualMachine.SeedVhdActualSize = value.SeedVhdActualSize;
 			}
 		}
 		foreach (VirtualMachine nv in fresh)
@@ -948,6 +950,69 @@ public VirtualMachine? SelectedVm
 				StatusText = "Checkpoint created for “" + SelectedVm.Name + "”.";
 				await AfterVmActionAsync();
 			}
+		}
+	}
+
+	private async Task OnResetPasswordAsync()
+	{
+		if (SelectedVm == null) return;
+		string vmName = SelectedVm.Name;
+		string seedVhdPath = SelectedVm.SeedVhdPath;
+		if (string.IsNullOrWhiteSpace(seedVhdPath) || seedVhdPath == "—")
+		{
+			MessageBox.Show("Reset Password is only supported for cloud-init (Ubuntu) VMs that possess a seed disk.", "Reset Password", MessageBoxButton.OK, MessageBoxImage.Information);
+			return;
+		}
+
+		string newPassword = Microsoft.VisualBasic.Interaction.InputBox("Enter new admin password for " + vmName + ":", "Reset Password", "");
+		if (string.IsNullOrWhiteSpace(newPassword)) return;
+
+		StatusText = "Resetting password for “" + vmName + "”…";
+		var (ok, msg) = await Task.Run(() => VmControlService.ResetGuestPassword(vmName, seedVhdPath, newPassword));
+		if (ok)
+		{
+			StatusText = "Password reset successfully in seed disk.";
+			MessageBox.Show("Password updated in the cloud-init seed disk.\n\nTo apply the new password to the guest OS, click 'Rebuild OS' to reinstall the VM, or boot the VM if it's new.", "Reset Password", MessageBoxButton.OK, MessageBoxImage.Information);
+		}
+		else
+		{
+			StatusText = "Password reset failed.";
+			MessageBox.Show("Failed to reset password:\n" + msg, "Reset Password", MessageBoxButton.OK, MessageBoxImage.Hand);
+		}
+	}
+
+	private async Task OnRebuildOsAsync()
+	{
+		if (SelectedVm == null) return;
+		string vmName = SelectedVm.Name;
+		string osVhdPath = SelectedVm.OsVhdPath;
+		string parentPath = SelectedVm.OsVhdParentPath;
+		if (string.IsNullOrWhiteSpace(parentPath) || parentPath == "—")
+		{
+			MessageBox.Show("Rebuild OS is only supported for VMs created from a base template (differencing disk).", "Rebuild OS", MessageBoxButton.OK, MessageBoxImage.Information);
+			return;
+		}
+
+		var result = MessageBox.Show(
+			$"Rebuild OS for VM “{vmName}”?\n\nThis will permanently wipe the current OS disk and reinstall a fresh OS from the base template:\n{parentPath}\n\nThis action cannot be undone.",
+			"Rebuild OS",
+			MessageBoxButton.YesNo,
+			MessageBoxImage.Warning);
+		if (result != MessageBoxResult.Yes) return;
+
+		StatusText = "Rebuilding OS for “" + vmName + "”…";
+		var (ok, msg) = await Task.Run(() => VmControlService.RebuildOsDisk(vmName, osVhdPath, parentPath));
+		if (ok)
+		{
+			StatusText = "OS rebuilt successfully.";
+			MessageBox.Show("The VM's OS disk has been successfully rebuilt from the template. You can now start the VM.", "Rebuild OS", MessageBoxButton.OK, MessageBoxImage.Information);
+			await AfterVmActionAsync();
+			await RefreshDrawerIfShowingAsync(vmName);
+		}
+		else
+		{
+			StatusText = "OS rebuild failed.";
+			MessageBox.Show("Failed to rebuild OS:\n" + msg, "Rebuild OS", MessageBoxButton.OK, MessageBoxImage.Hand);
 		}
 	}
 

@@ -543,9 +543,51 @@ function Repair-VirtualDiskFileForHyperV {
 """;
 		}
 
+
 		private static string BuildSeedDiskScript (string udB64, string mdB64, string ncB64, string seedPathPsSingleQuoted)
 		{
 			return BuildPowerShellVirtualDiskHelpers () + "$seed = " + seedPathPsSingleQuoted + "\r\n$seedDir = Split-Path -LiteralPath $seed\r\nRepair-VirtualDiskDirectoryForHyperV $seedDir\r\nif (Test-Path -LiteralPath $seed) {\r\n  Dismount-VHD -Path $seed -ErrorAction SilentlyContinue\r\n  $seedFull = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $seed).Path)\r\n  foreach ($vm in @(Get-VM -ErrorAction SilentlyContinue)) {\r\n    $hds = @(Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $seedFull) })\r\n    foreach ($hd in $hds) {\r\n      try { $hd | Remove-VMHardDiskDrive -ErrorAction Stop }\r\n      catch { Stop-VM -Name $vm.Name -TurnOff -Force -ErrorAction SilentlyContinue; $hd | Remove-VMHardDiskDrive -ErrorAction SilentlyContinue }\r\n    }\r\n  }\r\n  Dismount-VHD -Path $seed -ErrorAction SilentlyContinue\r\n  for ($i = 0; $i -lt 10; $i++) {\r\n    if (-not (Test-Path -LiteralPath $seed)) { break }\r\n    try { Remove-Item -LiteralPath $seed -Force -ErrorAction Stop; break } catch { Start-Sleep -Milliseconds 400 }\r\n  }\r\n  if (Test-Path -LiteralPath $seed) { throw 'Cannot replace seed VHD. Remove the CIDATA disk from the VM in Hyper-V Manager, or delete the old VM, then retry.' }\r\n}\r\n" + $"New-VHD -Path $seed -SizeBytes {536870912} -Dynamic | Out-Null\r\n" + "Repair-VirtualDiskFileForHyperV $seed\r\n$ud = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + udB64 + "'))\r\n$md = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + mdB64 + "'))\r\n$vhd = Mount-VHD -Path $seed -PassThru\r\n$disk = $vhd | Get-Disk\r\nInitialize-Disk -InputObject $disk -PartitionStyle MBR\r\n$part = New-Partition -DiskNumber $disk.Number -UseMaximumSize -AssignDriveLetter\r\nFormat-Volume -Partition $part -FileSystem FAT32 -NewFileSystemLabel CIDATA -Confirm:$false | Out-Null\r\n$p2 = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.DriveLetter -ne 0 } | Select-Object -First 1\r\n$root = $p2.DriveLetter.ToString() + ':\\'\r\n[System.IO.File]::WriteAllText((Join-Path $root 'user-data'), $ud, [System.Text.UTF8Encoding]::new($false))\r\n[System.IO.File]::WriteAllText((Join-Path $root 'meta-data'), $md, [System.Text.UTF8Encoding]::new($false))\r\n" + ((ncB64.Length > 0) ? ("$nc = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + ncB64 + "'))\r\n[System.IO.File]::WriteAllText((Join-Path $root 'network-config'), $nc, [System.Text.UTF8Encoding]::new($false))\r\n") : "") + "Dismount-VHD -Path $seed\r\n";
 		}
-	}
 
+		public static (bool ok, string message) ResetGuestPassword (string vmName, string seedVhdPath, string newPassword)
+		{
+			string safeSeed = EscapeSingleQuoted (seedVhdPath.Trim ());
+			string safePassword = EscapeSingleQuoted (newPassword.Trim ());
+			string innerScriptBody = 
+				"$seed = '" + safeSeed + "'\r\n" +
+				"if (-not (Test-Path -LiteralPath $seed)) { throw 'Seed disk not found.' }\r\n" +
+				"$vhd = Mount-VHD -Path $seed -PassThru\r\n" +
+				"try {\r\n" +
+				"  $disk = $vhd | Get-Disk\r\n" +
+				"  $part = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.DriveLetter -ne 0 } | Select-Object -First 1\r\n" +
+				"  if (-not $part) { throw 'Could not locate partition on seed disk.' }\r\n" +
+				"  $root = $part.DriveLetter.ToString() + ':\\'\r\n" +
+				"  $udPath = Join-Path $root 'user-data'\r\n" +
+				"  if (-not (Test-Path -LiteralPath $udPath)) { throw 'user-data not found on seed disk.' }\r\n" +
+				"  $ud = [System.IO.File]::ReadAllText($udPath)\r\n" +
+				"  $newPass = '" + safePassword + "'\r\n" +
+				"  $ud = $ud -replace 'plain_text_passwd:\\s*\\S+', ('plain_text_passwd: ' + $newPass)\r\n" +
+				"  $ud = $ud -replace 'ubuntu:\\s*\\S+', ('ubuntu:' + $newPass)\r\n" +
+				"  $ud = $ud -replace 'root:\\s*\\S+', ('root:' + $newPass)\r\n" +
+				"  [System.IO.File]::WriteAllText($udPath, $ud, [System.Text.UTF8Encoding]::new($false))\r\n" +
+				"} finally {\r\n" +
+				"  Dismount-VHD -Path $seed\r\n" +
+				"}\r\n";
+			return RunScriptTryCatch (innerScriptBody);
+		}
+
+		public static (bool ok, string message) RebuildOsDisk (string vmName, string osVhdPath, string parentPath)
+		{
+			string value = VmLiteral (vmName);
+			string safeOs = EscapeSingleQuoted (osVhdPath.Trim ());
+			string safeParent = EscapeSingleQuoted (parentPath.Trim ());
+			string innerScriptBody = 
+				"$vm = Get-VM -Name " + value + " -ErrorAction Stop\r\n" +
+				"if ($vm.State -eq 'Running') { Stop-VM -VM $vm -TurnOff -Force }\r\n" +
+				"Start-Sleep -Seconds 1\r\n" +
+				"$os = '" + safeOs + "'\r\n" +
+				"if (Test-Path -LiteralPath $os) { Remove-Item -LiteralPath $os -Force }\r\n" +
+				"New-VHD -Path $os -ParentPath '" + safeParent + "' -Differencing | Out-Null\r\n";
+			return RunScriptTryCatch (innerScriptBody);
+		}
+	}

@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.1 (2026-06-01)
+
+### Bug Fixes
+- **VM Details Persistence**: Fixed a major bug where VM details (OS disk paths, actual sizes) and MAC addresses were being wiped and replaced with empty/dash `—` values every 5 seconds by the live refresh timer.
+- **WMI Performance**: Optimised the merge logic in the status merging loop to ensure that fast queries preserve the fully-loaded detailed properties.
+
+### New Features & Improvements
+- **Reset Password Action**: Enabled the "Reset Password" button in the VM Details panel for all cloud-init virtual machines. It mounts the `CIDATA` seed disk and updates credentials seamlessly.
+- **Rebuild OS Action**: Enabled the "Rebuild OS" button in the VM Details panel for VMs built with differencing disks. This lets you quickly recreate and reset your virtual machine back to a clean template state.
+- **Automatic hv-kvp-daemon**: Added automatic installation of the `hv-kvp-daemon` integration services package during the first boot of cloud-init Ubuntu virtual machines. This ensures the guest automatically reports its IP address back to the Hyper-V host for dynamic display.
+
 ## v1.3.0 (2026-06-01)
 
 ### New Features

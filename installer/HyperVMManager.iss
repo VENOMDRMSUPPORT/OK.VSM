@@ -1,5 +1,5 @@
 #define AppName "VENOM VM-WARE"
-#define AppVersion "1.3.0"
+#define AppVersion "1.3.1"
 #define AppPublisher "VENOMDRMSUPPORT"
 #define AppExeName "HyperVMManager.exe"
 #define BuildOutput "..\\HyperVMManager\\bin\\Release\\net8.0-windows"
@@ -23,7 +23,7 @@ WizardStyle=modern
 UninstallDisplayIcon={app}\\{#AppExeName}
 UninstallDisplayName={#AppName}
 SetupIconFile={#AppIcon}
-CloseApplications=no
+CloseApplications=yes
 RestartApplications=no
 
 [Languages]

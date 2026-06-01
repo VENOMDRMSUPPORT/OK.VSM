@@ -202,7 +202,7 @@
                 <TextBlock Text="Open Console" TextWrapping="Wrap" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
-            <Button Style="{StaticResource QuickActionBtn}" Margin="4" IsEnabled="False" ToolTipService.ToolTip="Not available for local Hyper-V (cloud / guest agent feature).">
+            <Button Style="{StaticResource QuickActionBtn}" Margin="4" ToolTipService.ToolTip="Reset VM admin password (supported for cloud-init VMs)" Command="{Binding ResetPasswordCommand}">
               <StackPanel Orientation="Horizontal">
                 <TextBlock Text="" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="#8B949E" Margin="0,0,10,0" VerticalAlignment="Center" />
                 <TextBlock Text="Reset Password" TextWrapping="Wrap" VerticalAlignment="Center" />
@@ -325,7 +325,7 @@
           </Border>
           <TextBlock Text="DANGER ZONE" FontSize="10" FontWeight="SemiBold" Foreground="#F85149" Margin="16,20,16,8" FontFamily="Segoe UI" />
           <StackPanel Margin="16,0,16,8">
-            <Button Style="{StaticResource DangerOutlineBtn}" HorizontalAlignment="Stretch" IsEnabled="False" Margin="0,0,0,8" ToolTipService.ToolTip="Rebuild / reinstall guest OS is not exposed as a single action in local Hyper-V. Use installation media inside the VM or replace the VHD.">
+            <Button Style="{StaticResource DangerOutlineBtn}" HorizontalAlignment="Stretch" Margin="0,0,0,8" ToolTipService.ToolTip="Rebuild OS from the template (supported for cloud-init differencing disk VMs)" Command="{Binding RebuildOsCommand}">
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <TextBlock Text="" FontFamily="Segoe MDL2 Assets" FontSize="14" Margin="0,0,8,0" />
                 <TextBlock Text="Rebuild OS" />

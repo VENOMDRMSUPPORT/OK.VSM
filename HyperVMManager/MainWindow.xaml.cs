@@ -1,4 +1,4 @@
-﻿using System.Collections.Specialized;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
@@ -221,7 +221,10 @@ public partial class MainWindow : Window
             $"echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Update script started > \"{logPath}\"",
             $"echo Installer: \"{installerPath}\" >> \"{logPath}\"",
             "",
-            "REM Wait for app to exit (max 30 seconds)",
+            "REM Always wait 2 seconds first to let the main application initiate shutdown",
+            "timeout /t 2 /nobreak >NUL 2>&1",
+            "",
+            "REM Wait for app to fully exit (max 15 seconds)",
             "set /a count=0",
             ":waitloop",
             "tasklist /FI \"IMAGENAME eq HyperVMManager.exe\" 2>NUL | find /I \"HyperVMManager.exe\" >NUL",
@@ -229,29 +232,29 @@ public partial class MainWindow : Window
             $"    echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - App exited >> \"{logPath}\"",
             "    goto :runinstaller",
             ")",
-            "if %count% GEQ 30 (",
-            $"    echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Timeout >> \"{logPath}\"",
+            "if %count% GEQ 15 (",
+            $"    echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Timeout waiting for exit, proceeding anyway >> \"{logPath}\"",
             "    goto :runinstaller",
             ")",
             "set /a count+=1",
-            "timeout /t 1 /nobreak >NUL",
+            "timeout /t 1 /nobreak >NUL 2>&1",
             "goto :waitloop",
             "",
             ":runinstaller",
             $"echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Starting installer... >> \"{logPath}\"",
-            $"start \"\" /WAIT \"{installerPath}\"",
-            $"echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Installer finished >> \"{logPath}\"",
+            $"start \"\" \"{installerPath}\"",
+            $"echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Installer launched >> \"{logPath}\"",
             "del \"%~f0\""
         };
 
         var batScript = string.Join(Environment.NewLine, batLines);
         System.IO.File.WriteAllText(batPath, batScript);
 
-        // Launch cmd.exe with start command — runs independently of the app
+        // Launch the batch file directly using UseShellExecute = true.
+        // This avoids cmd.exe quoting/parsing issues when paths contain spaces.
         Process.Start(new ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = $"/c \"{batPath}\"",
+            FileName = batPath,
             UseShellExecute = true,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden
