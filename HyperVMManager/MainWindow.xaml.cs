@@ -211,26 +211,42 @@ public partial class MainWindow : Window
         var batchDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HyperVMManager", "updates");
         System.IO.Directory.CreateDirectory(batchDir);
         var batchPath = System.IO.Path.Combine(batchDir, "update.bat");
+        var logPath = System.IO.Path.Combine(batchDir, "update_log.txt");
 
         var lines = new[]
         {
             "@echo off",
+            $"echo [%date% %time%] Update batch started > \"{logPath}\"",
+            $"echo Installer: \"{installerPath}\" >> \"{logPath}\"",
+            "",
             "echo Waiting for VENOM VM-WARE to close...",
+            "REM Wait up to 30 seconds for app to exit",
+            "set /a counter=0",
             ":waitloop",
             "tasklist /FI \"IMAGENAME eq HyperVMManager.exe\" 2>nul | find /I \"HyperVMManager.exe\" >nul",
-            "if not errorlevel 1 (",
-            "    timeout /t 1 /nobreak >nul",
-            "    goto waitloop",
+            "if errorlevel 1 goto :run_installer",
+            "set /a counter+=1",
+            "if %counter% GEQ 30 (",
+            $"    echo [%date% %time%] Timeout waiting for app exit >> \"{logPath}\"",
+            "    echo Timeout! Running installer anyway...",
+            "    goto :run_installer",
             ")",
+            "timeout /t 1 /nobreak >nul",
+            "goto :waitloop",
+            "",
+            ":run_installer",
+            $"echo [%date% %time%] App exited, starting installer >> \"{logPath}\"",
             "echo Starting installer...",
-            $"start \"\" /WAIT \"{installerPath}\""
+            $"\"{installerPath}\"",
+            $"echo [%date% %time%] Installer finished (exit code %errorlevel%) >> \"{logPath}\"",
         };
         System.IO.File.WriteAllLines(batchPath, lines);
 
         // Launch the batch file with admin privileges, visible so user can see progress
         Process.Start(new ProcessStartInfo
         {
-            FileName = batchPath,
+            FileName = "cmd.exe",
+            Arguments = $"/c \"{batchPath}\"",
             UseShellExecute = true,
             Verb = "runas",
             WindowStyle = ProcessWindowStyle.Normal
