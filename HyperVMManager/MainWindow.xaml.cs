@@ -207,47 +207,54 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("Installer path is invalid.");
         }
 
-        // Create a PowerShell script that waits for the app to exit, then runs the installer
+        // Create a batch file that waits for app exit, then runs installer
+        // Batch files launched via cmd.exe /c run independently of the parent process
         var scriptDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HyperVMManager", "updates");
         System.IO.Directory.CreateDirectory(scriptDir);
-        var scriptPath = System.IO.Path.Combine(scriptDir, "update.ps1");
+        var batPath = System.IO.Path.Combine(scriptDir, "update.bat");
         var logPath = System.IO.Path.Combine(scriptDir, "update_log.txt");
 
-        // PowerShell script: wait for app exit (max 30s), then run installer
-        var psScript = $@"$logPath = '{logPath.Replace("'", "''")}'
-$installerPath = '{installerPath.Replace("'", "''")}'
-""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Update script started"" | Out-File $logPath
-""Installer: $installerPath"" | Out-File $logPath -Append
+        // Build batch script — use %TEMP% to avoid hardcoding paths
+        var batLines = new[]
+        {
+            "@echo off",
+            $"echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Update script started > \"{logPath}\"",
+            $"echo Installer: \"{installerPath}\" >> \"{logPath}\"",
+            "",
+            "REM Wait for app to exit (max 30 seconds)",
+            "set /a count=0",
+            ":waitloop",
+            "tasklist /FI \"IMAGENAME eq HyperVMManager.exe\" 2>NUL | find /I \"HyperVMManager.exe\" >NUL",
+            "if errorlevel 1 (",
+            $"    echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - App exited >> \"{logPath}\"",
+            "    goto :runinstaller",
+            ")",
+            "if %count% GEQ 30 (",
+            $"    echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Timeout >> \"{logPath}\"",
+            "    goto :runinstaller",
+            ")",
+            "set /a count+=1",
+            "timeout /t 1 /nobreak >NUL",
+            "goto :waitloop",
+            "",
+            ":runinstaller",
+            $"echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Starting installer... >> \"{logPath}\"",
+            $"start \"\" /WAIT \"{installerPath}\"",
+            $"echo {DateTime.Now:yyyy-MM-dd HH:mm:ss} - Installer finished >> \"{logPath}\"",
+            "del \"%~f0\""
+        };
 
-# Wait for app to exit (max 30 seconds)
-$elapsed = 0
-while ($elapsed -lt 30) {{
-    $proc = Get-Process -Name 'HyperVMManager' -ErrorAction SilentlyContinue
-    if (-not $proc) {{ break }}
-    Start-Sleep -Seconds 1
-    $elapsed++
-}}
+        var batScript = string.Join(Environment.NewLine, batLines);
+        System.IO.File.WriteAllText(batPath, batScript);
 
-if ($elapsed -ge 30) {{
-    ""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Timeout, forcing installer"" | Out-File $logPath -Append
-}} else {{
-    ""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - App exited after $elapsed seconds"" | Out-File $logPath -Append
-}}
-
-# Run installer
-""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Starting installer..."" | Out-File $logPath -Append
-Start-Process -FilePath $installerPath -Wait
-""$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Installer finished"" | Out-File $logPath -Append
-";
-        System.IO.File.WriteAllText(scriptPath, psScript);
-
-        // Launch PowerShell with the script — no Verb="runas" needed since app is already elevated
+        // Launch cmd.exe with start command — runs independently of the app
         Process.Start(new ProcessStartInfo
         {
-            FileName = "powershell.exe",
-            Arguments = $"-ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
-            UseShellExecute = false,
-            CreateNoWindow = true
+            FileName = "cmd.exe",
+            Arguments = $"/c \"{batPath}\"",
+            UseShellExecute = true,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden
         });
     }
 

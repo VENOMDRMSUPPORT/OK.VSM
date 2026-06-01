@@ -78,3 +78,5 @@ Test-*.ps1
 # OS files
 Thumbs.db
 .DS_Store
+cloud-images/
+*.tar.gz
